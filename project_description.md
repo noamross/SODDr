@@ -1,4 +1,4 @@
-Model is
+?Model is
 
  - spatially explicit, on a lattice
  - 
@@ -87,4 +87,31 @@ Outputs - how probability of outbreak changes with input value
 
 Question: Should arrival just be an increase in force of infection, or some other poisson process?
 
+Force of infection is *susceptibility* times the rate at which spores arrive.  The rate is the sum of spore burdens from all other plots.  Each plot contributes according to total spore production, distributed according to the kernel.  There's an additional, external spore burden as well.
 
+[Pre-calculate dispersal matrix for the plot]
+
+New infected trees are previously uninfected trees X 
+
+
+
+
+Model creation questions
+
+ - Best spore dispersal kernel?
+ - Best sampling process (poisson, negative binomial, explicitly spatially clustered?)
+ - Independent suscptibilities to different species?
+ - 
+General Questions
+ 
+ - Outcome varying species composition vs. external spore burden
+    - How to quantify spore burden
+ - Threshold effects?
+ - Age structure?
+ - 
+Other question:
+
+ - How does this model compare to a purely statistical one?
+ - 
+ - 
+ - 
