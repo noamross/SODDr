@@ -12,7 +12,6 @@ progress.flag <- !parallel.flag && interactive()
   treeparms.df <- cbind(class=classes, treeparms.df)
   n.species <- length(unique(treeparms.df$species))
   n.classes <- nrow(treeparms.df)
-  classes <- 1:n.classes
   ageclasses <-as.vector(table(treeparms.df$species))
     names(ageclasses) <- 1:n.species
   waifw <- as.matrix(treeparms.df[,matchcols(treeparms.df, with="waifw[0-9]+"),])
@@ -22,7 +21,18 @@ progress.flag <- !parallel.flag && interactive()
   trans.vec <- as.vector(rbind(treeparms.df$S.transition, treeparms.df$I.transition))
   resprout.vec <- as.vector(rbind(treeparms.df$S.resprout, treeparms.df$I.resprout))
   recover <- treeparms.df$recover
+  space <- treeparms.df$space
+
+#
+
+#' Produced multiplier for new recruits given population and space vectors
+DensityDependence <- function(pop, space) { 
+  E <- 1 - sum(pop*space)
+  return(E)
+}
+
 # 2. Set up locations.  In this case, a lattice
+
 
 #'Generate a lattice of equally spaced locations and coordinates
 MakeLattice <- function(nx, ny, dist=1) {
@@ -53,7 +63,7 @@ spread.matrices <- daply(treeparms.df,"class", function(x) {
 
 # Set simulation parameters
 
-time.steps <- 1:50
+time.steps <- 1:100
 
 # Create transition matrix
 # TODO: Make this into a function
@@ -61,10 +71,6 @@ time.steps <- 1:50
 tran.mat <- matrix(0, nrow=n.classes*2, ncol=n.classes*2)
 diags <- row(tran.mat) - col(tran.mat)
 fec.mat <- tran.mat
-for(i in 1:n.species) {
-  classindex <- 1:(2*ageclasses[i]) + (sum(ageclasses[0:(i-1)])*2)
-  fec.mat[classindex[1],classindex] <- (recruit.vec + resprout.vec*mort.vec)[classindex]  #Fecundities + Death X Resprout probabilties
-}
 diag(tran.mat) <- 1 - trans.vec - mort.vec
   
 tran.mat[diags==1] <- diag(tran.mat)[-(nrow(tran.mat))] * rep(c(1,0),n.classes)[-(nrow(tran.mat))]
@@ -78,9 +84,12 @@ tran.mat[diags==1] <- tran.mat[diags==1] + trans.vec[1:(n.classes*2-1)] * rep(c(
   
 # Initiatte
   
-pop <- array(NA, dim=c(n.locations, 2*n.classes, length(time.steps)))   #TODO: Standardize use of n.classes
-pop.init <- matrix(data=c(0.125,0), nrow=n.locations, ncol=(2*n.classes), byrow=TRUE)
-pop[,,1] <- pop.init
+pop <- array(NA, dim=c(length(time.steps), n.locations, 2*n.classes), 
+             dimnames=list(Time=time.steps,
+                           Location=1:n.locations, 
+                           Class=paste(rep(names(classes),each=2),rep(c("S","I"),n.classes),sep=",")))
+pop.init <- matrix(data=c(0.125,.00001), nrow=n.locations, ncol=(2*n.classes), byrow=TRUE)
+pop[1,,] <- pop.init
 
 spore.burden <- matrix(NA, nrow=n.classes, ncol=n.locations)
 for(time in time.steps[-(length(time.steps))]) {
@@ -88,7 +97,7 @@ for(time in time.steps[-(length(time.steps))]) {
 # First act in simulation step.  Given population at each location, calculate spore burden at each location
   
   for(class in classes) {
-      spore.burden[class,] <- pop[,class*2,time] %*% spread.matrices[class,,]
+      spore.burden[class,] <- pop[time,,class*2] %*% spread.matrices[class,,]
   }
   
   force.infection <- waifw %*% spore.burden
@@ -100,30 +109,27 @@ for(time in time.steps[-(length(time.steps))]) {
     force.matrix <- kronecker(rep(1,n.classes),
                               rbind(as.vector(rbind(1-force,real.rec)),
                               as.vector(rbind(force, 1-real.rec))))
+    E <- DensityDependence(pop[time,location,], space)
+    for(i in 1:n.species) {
+      classindex <- 1:(2*ageclasses[i]) + (sum(ageclasses[0:(i-1)])*2)
+      fec.mat[classindex[1],classindex] <- (E*recruit.vec + resprout.vec*mort.vec)[classindex]  #Fecundities + Death X Resprout probabilties
+    }
     trans.mat <- tran.mat*force.matrix + fec.mat
-    pop[location,,time + 1] <- trans.mat %*% pop[location,,time]
+    pop[time + 1,location,] <- trans.mat %*% pop[time,location,]
   }
 }
   
-  # Calculate spore burden matrix
-  
+# Plot
 
-  
-
-
-# spore.burden is a matrix at time t of the spores in each 
-# cell coming FROM trees of each class in all other cells
-
-spore.burden <- matrix(NA, prod(lattice.dims), sum(size.classes))
-
-# To fill, multiply infected population of each class by weighted.matrix
-infected.pop <- pop.array[,seq(2,classes*2,2),t]
-spore.burden <- infected.pop %*% weighted.matrix
-# This can be multiplied by waifm to get the force of infection on each species at each site
-
-lambda <- spore.burden * waifw
-
-
-## Use popbio::multiresultm for demographic stochasticity
-
-rowSums
+# Convert to a data frame
+require(reshape2)
+require(ggplot2)
+pop.df <- melt(pop, value.name="Population")
+pop.df$Class <- factor(pop.df$Class, levels(pop.df$Class)[as.vector(rbind(seq(2,n.classes*2,by=2), seq(1,n.classes*2-1, by=2)))])
+pop.df <- arrange(pop.df, Time,Location,Class)
+pop.df$Species <- rep(treeparms.df$species, each=2)
+pop.df$AgeClass <- rep(treeparms.df$ageclass, each=2)
+pop.df$Disease <- factor(c("S","I"), c("S","I"))
+pop.df$Class <- NULL
+ggplot(pop.df, aes(x=Time,y=Population, fill=Disease)) + stat_summary(fun.y="sum", geom="area", alpha=0.6) + facet_grid(Species~AgeClass)
+#pop$infected <- rep(c("S","I"), nrow(pop)/2)
