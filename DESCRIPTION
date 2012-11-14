@@ -1,7 +1,12 @@
-Package: SOD
-Title: Package for Sudden Oak Death model simulations
-Description: 
+Package: SODDr
+Title: Sudeen Oak Death Dynamics
+Description: Package for Sudden Oak Death model simulations
 Version: 0.1
 Author: Noam Ross <noam.ross@gmail.com>
 Maintainer: Noam Ross <noam.ross@gmail.com>
+URL: https://github.com/noamross/SODDr
 License: MIT
+Collate:
+    'DensityDependence.R'
+    'MakeLattice.R'
+    'SODModel.R'

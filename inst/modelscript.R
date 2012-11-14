@@ -5,7 +5,7 @@ require(reshape2)
 require(ggplot2)
 
 # Load all the function files
-for (file in list.files("R/", full.names=TRUE)) source(file)
+for (file in list.files("../R/", full.names=TRUE)) source(file)
 
 
 
