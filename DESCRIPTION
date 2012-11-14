@@ -1,0 +1,7 @@
+Package: SOD
+Title: Package for Sudden Oak Death model simulations
+Description: 
+Version: 0.1
+Author: Noam Ross <noam.ross@gmail.com>
+Maintainer: Noam Ross <noam.ross@gmail.com>
+License: MIT
