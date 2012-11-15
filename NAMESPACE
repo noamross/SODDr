@@ -1,3 +1,4 @@
+export(adjacent.dispersal)
 export(DensityDependence)
 export(MakeLattice)
 export(SODModel)
