@@ -1,5 +1,5 @@
 #'Runs the disease model.  Outputs a large matrix of population by species, ageclass, location
-#'@import plyr 
+#'@import plyr reshape2
 #'@export
 SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose=interactive()) {
   
