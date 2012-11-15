@@ -1,0 +1,127 @@
+Here I attempt to replicate the results in @Cobb2012 using
+
+```r
+library(devtools) # devtools enables intsallation from alternate code locations
+install_github("SODDr","noamross",ref=
+```
+
+```{r}
+library(SODDr)
+```
+
+
+# Setup
+
+First, I load a CSV file of parameters
+
+```{r loadparms}
+treeparms.df <- read.csv(system.file("paper_tree_parms_eq.csv",
+                                     package="SODDr"), 
+                         stringsAsFactors=FALSE)
+print(treeparms.df)
+```
+
+This data set includes all of the model parameters as defined by @Cobb2012. 
+Note that several values, such as the space occupied by different tanoak size
+classes, and recruitment rates, are missing.  Per the original paper, I 
+calculate these so as to maintain steady-state conditions in the model
+
+```{r}
+treeparms.df <- within(treeparms.df, {
+# Calculate the relative space requirements of tanoak size classes
+# based on initial conditions
+space[1:4] <- 0.25*(S.init[1:4]/sum(S.init[1:4]))
+
+# Set recruitment rates to steady-state levels.  For Redwood and Bay, this is 
+# simply the mortality rate divided by the density-dependence coefficient at 
+# simulation start.  For tanoak, which has multiple size classes, it's a but
+# more involved
+
+S.recruit[5] <- S.mortality[5]/(1-sum(S.init * space))
+I.recruit[5] <- I.mortality[5]/(1-sum(S.init * space))
+S.recruit[6] <- S.mortality[6]/(1-sum(S.init * space))
+I.recruit[6] <- I.mortality[6]/(1-sum(S.init * space))
+
+A2 <- S.transition[1]/(S.transition[2] + S.mortality[2])
+A3 <- A2 * S.transition[2]/(S.transition[3] + S.mortality[3])
+A4 <- A3* S.transition[3]/S.mortality[4]
+S.recruit[1] <- (S.transition[1] + S.mortality[1])/(1-sum(S.init * space)) -
+                (S.recruit[2] * A2 + S.recruit[3] * A3 + S.recruit[4] * A4)
+
+I.recruit[1] <- S.recruit[1] 
+})
+```
+
+Our parameters table defines the dispersal kernel as `adjacent.dispersal`, and
+gives two parameters.  This function as outputs the first parameter
+when within the cell, the second for dispersal to adjacent cells, and zero for
+other cells:
+
+```{r disperal kernel}
+print(adjacent.dispersal)
+```
+
+Next I set up the locations in the model. These must be in the form of a matrix 
+with the first column being site numbers, and the second being `x` and `y`
+coordinates.  MakeLattice` is a convenient function that creates a regularly 
+spaced grid:
+
+```{r makelocations}
+locations <- MakeLattice(nx=20,ny=20,dist=1)
+head(locations)
+```
+
+Next, I create a matrix of initial population values, which should be sized by 
+number of locations by number of species/size classes *times 2*.  They should be
+in order of the classes as they appear in the data table, but alternating
+$S,I,S,I\dots$. In this case, initial populations are uniform across the
+landscape and equal to the `init` values from the parameters table.
+
+```{r initial.values}
+initial.vec = as.vector(rbind(treeparms.df$S.init, treeparms.df$I.init))
+init <- matrix(data=initial.vec, nrow=nrow(locations), 
+               ncol=2*nrow(treeparms.df), byrow=TRUE)
+```
+
+Finally, we set the time steps for the model
+
+```{r}
+time.steps <- 1:100
+```
+
+# Do it!
+
+Running `SODModel` runs the model and generates a dataframe of population by
+time, species, size class, and disease status
+
+```{r}
+pop.df <- SODModel(treeparms.df,locations,time.steps,init)
+str(pop.df)
+```
+
+
+#Results
+Here are the results, broken up by species and age class:
+
+```{r}
+library(ggplot2)
+library(plyr)
+pop.df.totals <- ddply(pop.df, c("Time", "Disease", "Species", "AgeClass"),
+                       summarise, TotPop=sum(Population))
+dynamic.plot <- ggplot(pop.df.totals, 
+                       aes(x=Time,y=TotPop, fill=Disease, color=AgeClass)) + 
+                  geom_area(position="stack", alpha=0.6) + facet_grid(~Species)
+dynamic.plot
+```
+
+We can make a plot replicating the plot from @Cobb2012, showing only the
+populations of small and large tanoaks as a proportion of the total population:
+
+```{r}
+paper.df <- ddply(transform(pop.df.totals, Size = ifelse(AgeClass == "1" | AgeClass == "2", "Small", "Large")), c("Time", "Species", "Size"), summarise, SizePop=sum(TotPop))
+paper.df <- ddply(paper.df, "Time", transform, Pct=SizePop/sum(SizePop))
+paper.plot <- ggplot(subset(paper.df, Species==1), aes(x=Time, y=Pct, lty=Size)) + geom_line(lwd=1) + scale_y_continuous(limits=c(0,0.6), expand=c(0,0)) + scale_linetype_manual(values=c(1,5))
+paper.plot
+```
+
+

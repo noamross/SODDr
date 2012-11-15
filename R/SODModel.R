@@ -92,6 +92,7 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
     pop$AgeClass <- factor(rep(treeparms.df$ageclass, each=2))
     pop$Disease <- factor(c("S","I"), c("S","I"))
     pop$Class <- NULL
+    pop <- pop[,c(1,2,4,5,6,3)]
   }
   return(pop)
   
