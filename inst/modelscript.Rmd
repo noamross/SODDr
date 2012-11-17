@@ -1,14 +1,23 @@
-Here I attempt to replicate the results in @Cobb2012 using
+% Simulating Sudden Oak Death Dynamics
+% Noam Ross
+% 12-11-16 10:22:42
+
+I am working on a project with the [Rizzo Lab](http://ucanr.edu/sites/rizzolab/) on a project examining the dynamics of [Sudden Oak Death].  I really have to write more about this, but today I'm just going to post the results of an initial exercise.
+
+Here I attempt to replicate model results from @Cobb2012.  The model in that paper simulates the spread of disease and resulting tree mortality and stand dynamics in a mixed system of tanoak, bay laurel, and redwood.  In this system, only tanoak and bay laurel carry the disease, and it mostly only kills tanoak, but all three species compete for space in the forest.
+
+I'm developing this model as an R package -`"SODDr"` (Sudden Oak Death Dynamics in R), to replicate this work, you can install it from github.  Note that this is a very rough package and is changing, so you'll need to install the version specific to this analysis:
 
 ```r
 library(devtools) # devtools enables intsallation from alternate code locations
-install_github("SODDr","noamross",ref=
+install_github("SODDr","noamross",ref="1c139e1f98")
 ```
 
-```{r}
+```{r loadlib}
 library(SODDr)
 ```
 
+My model modifies the original in a few ways.  First, it's designed to be much more flexible, and make it easy to modify the number of species, size classes, and and disease parameters.  Secondly, it is in a discrete- rather than continuous-time framework.  This will make it easier to include stochasticity down the road, and ultimately fit it to actual data.
 
 # Setup
 
@@ -21,12 +30,15 @@ treeparms.df <- read.csv(system.file("paper_tree_parms_eq.csv",
 print(treeparms.df)
 ```
 
-This data set includes all of the model parameters as defined by @Cobb2012. 
-Note that several values, such as the space occupied by different tanoak size
-classes, and recruitment rates, are missing.  Per the original paper, I 
-calculate these so as to maintain steady-state conditions in the model
+This data set includes all of the model parameters as defined by @Cobb2012.   For each species and age class, there are parameters for mortality, recruitment, transition between classes, the probability of resprouting, and recovering from disease.  There are also parameters the the relative amount of space occupied by trees of each species/class.
 
-```{r}
+For each species/class, the table includes a kernel function to describe dispersal of disease spores from diseased trees, and parameters for that function.  The last set of columns represent the ""Who Acquires Infection From Whom" (WAIFW) matrix [@Anderson1985], which describes the vulnerability of each class to spores originating from others.  
+
+Note that several values, such as the space occupied by different tanoak size
+classes, and recruitment rates, are missing.  This is because, per the original paper, I 
+calculate these so as to parameterize the model for steady-state conditions in the absence of disease.  Here I do that, using equation 8 in the papers' supplement:
+
+```{r fixparms}
 treeparms.df <- within(treeparms.df, {
 # Calculate the relative space requirements of tanoak size classes
 # based on initial conditions
@@ -56,18 +68,17 @@ A4 <- NULL
 })
 ```
 
-Our parameters table defines the dispersal kernel as `adjacent.dispersal`, and
-gives two parameters.  This function as outputs the first parameter
-when within the cell, the second for dispersal to adjacent cells, and zero for
+The original model allows only dispersal between adjacent cells, so ameters table calls the dispersal kernel `adjacent.dispersal`, and
+gives two parameters.  This function outputs the first parameter when within the cell, the second for dispersal to adjacent cells, and zero for
 other cells:
 
-```{r disperal kernel}
+```{r disperalkernel}
 print(adjacent.dispersal)
 ```
 
 Next I set up the locations in the model. These must be in the form of a matrix 
 with the first column being site numbers, and the second being `x` and `y`
-coordinates.  MakeLattice` is a convenient function that creates a regularly 
+coordinates.  `MakeLattice` is a convenience function that creates a regularly 
 spaced grid:
 
 ```{r makelocations}
@@ -90,7 +101,7 @@ init <- matrix(data=initial.vec, nrow=nrow(locations),
 Finally, we set the time steps for the model
 
 ```{r}
-time.steps <- 1:500
+time.steps <- 1:100
 ```
 
 # Do it!
@@ -107,7 +118,7 @@ str(pop.df)
 #Results
 Here are the results, broken up by species and age class:
 
-```{r}
+```{r initrun,fig.cap="Population dynamics broken up by species (left to right, Tanoak, Bay, Redwood), and Size Class"}
 library(ggplot2)
 library(plyr)
 pop.df.totals <- ddply(pop.df, c("Time", "Disease", "Species", "AgeClass"),
@@ -118,19 +129,20 @@ dynamic.plot <- ggplot(pop.df.totals,
 dynamic.plot
 ```
 
-We can make a plot replicating the plot from @Cobb2012, showing only the
-populations of small and large tanoaks as a proportion of the total population:
+The plot shows This isn't quite steady-state, I suspect because of some rounding errors in copying parameters from the paper.
 
-```{r}
+We can make a plot in the style of @Cobb2012, showing only the populations of small and large tanoaks as a proportion of the total population:
+
+```{r papeplot, fig.cap="Tanoak as a fraction of total population over time, no disease"}
 paper.df <- ddply(transform(pop.df.totals, Size = ifelse(AgeClass == "1" | AgeClass == "2", "Small", "Large")), c("Time", "Species", "Size"), summarise, SizePop=sum(TotPop))
 paper.df <- ddply(paper.df, "Time", transform, Pct=SizePop/sum(SizePop))
 paper.plot <- ggplot(subset(paper.df, Species==1), aes(x=Time, y=Pct, lty=Size)) + geom_line(lwd=1) + scale_y_continuous(limits=c(0,0.6), expand=c(0,0)) + scale_x_continuous(expand=c(0,0)) + scale_linetype_manual(values=c(1,5)) + theme_bw() + theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank())
 paper.plot
 ```
 
-Now, let's change the initial conditions to include disease:
+Now, let's change the initial conditions to include disease and see what happens.  I change the populations of tanoak and bay in one pixel to infectious instead of healthy and run the model:
 
-```{r}
+```{r disease1, fig.cap="Tanoak as a fraction of total population, using baseline initial conditions and introducing disease"}
 init[190,2] <- init[190,1]
 init[190,1] <- 0
 init[190,10] <- init[190,9]
@@ -144,9 +156,15 @@ paper2.plot <- ggplot(subset(paper2.df, Species==1), aes(x=Time, y=Pct, lty=Size
 paper2.plot
 ```
 
-And now look at mostly-tanoak scenario
+Qualitatively, this looks a lot like the original result:
 
-```{r}
+![Figure 4a from @Cobb2012](http://dl.dropbox.com/u/3356641/blogstuff/cobb20124a.png)
+
+The main difference is the overall rate of change, which is expected because I haven't corrected any parameters for the change from continuous to discrete time.
+
+Now I simulate a scenario with mostly tanoak, some redwood, and no bay laurel, with disease, using the parameters previously calulated for the steady state without disease:
+
+```{r disease2, fig.cap='Tanoak dynamics under the "Mostly Tanoak" scenario'}
 treeparms.df$S.init <- c(0.7*treeparms.df$S.init[1:4]/sum(treeparms.df$S.init[1:4]),0,0.19)
 
 initial.vec = as.vector(rbind(treeparms.df$S.init, treeparms.df$I.init))
@@ -186,8 +204,6 @@ A3 <- NULL
 A4 <- NULL
 })
 
-time.steps <- 1:300 
-
 pop3.df <- SODModel(treeparms.df,locations,time.steps,init)
 pop3.df.totals <- ddply(pop3.df, c("Time", "Disease", "Species", "AgeClass"),
                        summarise, TotPop=mean(Population))
@@ -197,7 +213,13 @@ paper3.plot <- ggplot(subset(paper3.df, Species==1), aes(x=Time, y=Pct, lty=Size
 paper3.plot
 ```
 
-```{r}
+Again, qualitatively similar to the original results:
+
+![Fig 4b from @Cobb2012](http://dl.dropbox.com/u/3356641/blogstuff/cobb2012fig4b.png)
+
+Finally, I simulation the "Mostly Redwwod" scenario:
+
+```{r disease3, fig.cap='Tanoak dynamics under the "mostly redwood" scenario'}
 treeparms.df$S.init <- c(0.08*treeparms.df$S.init[1:4]/sum(treeparms.df$S.init[1:4]),0,0.69)
 
 initial.vec = as.vector(rbind(treeparms.df$S.init, treeparms.df$I.init))
@@ -237,8 +259,6 @@ A3 <- NULL
 A4 <- NULL
 })
 
-time.steps <- 1:300 
-
 pop4.df <- SODModel(treeparms.df,locations,time.steps,init)
 pop4.df.totals <- ddply(pop4.df, c("Time", "Disease", "Species", "AgeClass"),
                        summarise, TotPop=mean(Population))
@@ -248,4 +268,27 @@ paper4.plot <- ggplot(subset(paper4.df, Species==1), aes(x=Time, y=Pct, lty=Size
 paper4.plot
 ```
 
+Success!  Same results as the original:
 
+![Figure 4c from @Cobb2012](http://dl.dropbox.com/u/3356641/blogstuff/cobb2012fig4c.png)
+
+Now, for fun, let's make an animation of how the disease progresses through the stand.  I will use the "Mostly Tanoak" scenario", and plot the adult population as intensity, and the fraction of trees diseased as hue.
+
+```{r tanoak-anim, fig.show='animate', interval=0.2}
+tanspc <- subset(pop3.df, Species==1)
+tanspc$Species <- NULL
+tanspc <- ddply(tanspc, c("Time","Location"), function(x) {data.frame(TotTan=sum(x$Population[which(x$AgeClass=="3" | x$AgeClass=="4")]), FracDisease=sum(x$Population[which(x$Disease=="I" & (x$AgeClass=="3" | x$AgeClass=="4"))])/sum(x$Population[which(x$AgeClass=="3" | x$AgeClass=="4")]))})
+tanspc <- merge(tanspc, as.data.frame(locations), by.x="Location", by.y="location")
+dis.limits <- c(min(tanspc$FracDisease),max(tanspc$FracDisease))
+pop.limits <- c(min(tanspc$TotTan),max(tanspc$TotTan))
+require(animation)
+ani.options(nmax=50,loop=TRUE, interval=0.2)
+for (time in time.steps) {
+    print(ggplot(data=subset(tanspc, Time==time), 
+           aes(x=x,y=y,fill=FracDisease, alpha=TotTan)) +
+    geom_tile() +
+    scale_alpha(name="TanoakPopulation", limits=c(0,0.4), breaks=seq(0,0.4,0.1)) +
+    scale_fill_continuous(name="Fraction Diseased",limits=c(0,1), breaks=seq(0,1,0.25), low="#408000", high="#FF8000") +
+    theme(rect=element_blank(), line=element_blank()))
+  }
+```
