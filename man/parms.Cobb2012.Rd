@@ -2,7 +2,7 @@
 \name{parms.Cobb2012}
 \alias{parms.Cobb2012}
 \title{Parameters to replicate Cobb (2012)}
-\format{a CSV file}
+\format{a CSV file of parameters for the model}
 \description{
   This data table contains the parameters to reproduce
   results from Cobb et al. (2012)

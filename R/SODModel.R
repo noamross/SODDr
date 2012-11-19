@@ -11,6 +11,8 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
   parms.df$class <- 1:nrow(parms.df)
   n.locations <- nrow(locations)
   parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
+  parms.df$species <- factor(parms.df$species, 
+                             levels= as.character(unique(parms.df$species)))
   
   #Convert parameter data frame into list of parameters
   parms.obj <- MakeParmsList(parms.df)
@@ -86,14 +88,15 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
   if(verbose) z$step()
   }
   if(df.out) {
-    pop <- melt(pop, value.name="Population")
-    pop$Class <- factor(pop$Class, levels(pop$Class)[as.vector(rbind(seq(2,n.classes*2,by=2), seq(1,n.classes*2-1, by=2)))])
-    pop <- arrange(pop, Time,Location,Class)
-    pop$Species <- factor(rep(treeparms.df$species, each=2))
-    pop$SizeClass <- factor(rep(treeparms.df$sizeclass, each=2))
-    pop$Disease <- factor(c("S","I"), c("S","I"))
-    pop$Class <- NULL
-    pop <- pop[,c(1,2,4,5,6,3)]
+    pop.df <- melt(pop, value.name="Population")
+    pop.df$Class <- factor(pop.df$Class, levels <- dimnames(pop)$Class)
+    pop.df <- arrange(pop.df, Time,Location,Class)
+    pop.df$Species <- factor(rep(parms.df$species, each=2)) #, levels=levels(parms.df$species))
+    pop.df$SizeClass <- factor(rep(parms.df$sizeclass, each=2))
+    pop.df$Disease <- factor(c("S","I"), c("S","I"))
+    pop.df$Class <- NULL
+    pop.df <- pop.df[,c(1,2,4,5,6,3)]
+    return(pop.df)
   }
   return(pop)
   
@@ -101,32 +104,32 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
 
 
 #'@import gdata
-MakeParmsList <- function(treeparms.df) {
+MakeParmsList <- function(parms.df) {
   
-  classes <- 1:nrow(treeparms.df)
-  names(classes) <- paste(treeparms.df$species, treeparms.df$sizeclass, sep=",")
+  classes <- 1:nrow(parms.df)
+  names(classes) <- paste(parms.df$species, parms.df$sizeclass, sep=",")
   
-  sizeclasses <- as.vector(table(treeparms.df$species))
-  names(sizeclasses) <- 1:length(unique(treeparms.df$species))
+  sizeclasses <- as.vector(table(parms.df$species))
+  names(sizeclasses) <- 1:length(unique(parms.df$species))
   
   parms.obj <- list(
     classes = classes,
     sizeclasses = sizeclasses,
-    n.species = length(unique(treeparms.df$species)),
-    n.classes = nrow(treeparms.df),
-    waifw = as.matrix(treeparms.df[,matchcols(treeparms.df, 
+    n.species = length(unique(parms.df$species)),
+    n.classes = nrow(parms.df),
+    waifw = as.matrix(parms.df[,matchcols(parms.df, 
                                               with="waifw[0-9]+"),],
                       dimnames = list(names(classes),names(classes))),
-    recruit.vec = as.vector(rbind(treeparms.df$S.recruit, 
-                                  treeparms.df$I.recruit)),
-    mort.vec = as.vector(rbind(treeparms.df$S.mortality, 
-                               treeparms.df$I.mortality)),
-    trans.vec = as.vector(rbind(treeparms.df$S.transition, 
-                                treeparms.df$I.transition)),
-    resprout.vec = as.vector(rbind(treeparms.df$S.resprout, 
-                                   treeparms.df$I.resprout)),
-    recover = treeparms.df$recover,
-    space = treeparms.df$space
+    recruit.vec = as.vector(rbind(parms.df$S.recruit, 
+                                  parms.df$I.recruit)),
+    mort.vec = as.vector(rbind(parms.df$S.mortality, 
+                               parms.df$I.mortality)),
+    trans.vec = as.vector(rbind(parms.df$S.transition, 
+                                parms.df$I.transition)),
+    resprout.vec = as.vector(rbind(parms.df$S.resprout, 
+                                   parms.df$I.resprout)),
+    recover = parms.df$recover,
+    space = parms.df$space
   )
   return(parms.obj)
 }
