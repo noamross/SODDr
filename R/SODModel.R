@@ -1,4 +1,4 @@
-#'Runs the disease model.  Outputs a large matrix of population by species, ageclass, location
+#'Runs the disease model.  Outputs a large matrix of population by species, sizeclass, location
 #'@import plyr reshape2
 #'@export
 SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose=interactive()) {
@@ -10,6 +10,7 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
   
   parms.df$class <- 1:nrow(parms.df)
   n.locations <- nrow(locations)
+  parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
   
   #Convert parameter data frame into list of parameters
   parms.obj <- MakeParmsList(parms.df)
@@ -76,7 +77,7 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
       
       E <- DensityDependence(pop[time,location,], space)
       for(i in 1:n.species) {
-        classindex <- 1:(2*ageclasses[i]) + (sum(ageclasses[0:(i-1)])*2)
+        classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
         fec.mat[classindex[1],classindex] <- (E*recruit.vec + resprout.vec*mort.vec)[classindex]  #Fecundities + Death X Resprout probabilties
       }
       trans.mat <- tran.mat*force.matrix + fec.mat
@@ -89,7 +90,7 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
     pop$Class <- factor(pop$Class, levels(pop$Class)[as.vector(rbind(seq(2,n.classes*2,by=2), seq(1,n.classes*2-1, by=2)))])
     pop <- arrange(pop, Time,Location,Class)
     pop$Species <- factor(rep(treeparms.df$species, each=2))
-    pop$AgeClass <- factor(rep(treeparms.df$ageclass, each=2))
+    pop$SizeClass <- factor(rep(treeparms.df$sizeclass, each=2))
     pop$Disease <- factor(c("S","I"), c("S","I"))
     pop$Class <- NULL
     pop <- pop[,c(1,2,4,5,6,3)]
@@ -103,14 +104,14 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
 MakeParmsList <- function(treeparms.df) {
   
   classes <- 1:nrow(treeparms.df)
-  names(classes) <- paste(treeparms.df$species, treeparms.df$ageclass, sep=",")
+  names(classes) <- paste(treeparms.df$species, treeparms.df$sizeclass, sep=",")
   
-  ageclasses <- as.vector(table(treeparms.df$species))
-  names(ageclasses) <- 1:length(unique(treeparms.df$species))
+  sizeclasses <- as.vector(table(treeparms.df$species))
+  names(sizeclasses) <- 1:length(unique(treeparms.df$species))
   
   parms.obj <- list(
     classes = classes,
-    ageclasses = ageclasses,
+    sizeclasses = sizeclasses,
     n.species = length(unique(treeparms.df$species)),
     n.classes = nrow(treeparms.df),
     waifw = as.matrix(treeparms.df[,matchcols(treeparms.df, 
