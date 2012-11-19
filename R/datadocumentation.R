@@ -4,6 +4,6 @@
 #' (2012)
 #' 
 #' @docType data
-#' @format a CSV file
+#' @format a CSV file of parameters for the model
 #' @name parms.Cobb2012
 NULL
