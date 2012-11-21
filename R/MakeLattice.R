@@ -5,5 +5,7 @@ MakeLattice <- function(nx, ny, dist=1) {
                      x = rep(seq(from=0, by=dist, length.out=nx), each=ny),
                      y = rep(seq(from=0, by=dist, length.out=ny), times=nx)
   )
+  class(locations) <- c(class(locations), "lattice")
+  attr(locations, "gridsize") <- dist
   return(locations)
 }

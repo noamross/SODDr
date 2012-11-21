@@ -6,3 +6,13 @@ adjacent.dispersal <- function(distance, local, adjacent) {
          ifelse(distance < 1.5, adjacent,0)
   )
 }
+
+#' @export
+normal.dispersal <- function(distance, var=1, base=1, normalize=1) {
+  base*dnorm(x=distance,mean=0,sd=var,log=FALSE)
+}
+
+#' @export
+exp.dispersal <- function(distance, decay = 1, base=1, normalize=1) {
+  base*exp(-distance*decay)
+}

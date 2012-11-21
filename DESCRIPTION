@@ -14,5 +14,5 @@ Collate:
     'DensityDependence.R'
     'MakeLattice.R'
     'SODModel.R'
-    'adjacent.dispersal.R'
     'datadocumentation.R'
+    'dispersal_functions.R'

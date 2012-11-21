@@ -11,6 +11,7 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
   parms.df$class <- 1:nrow(parms.df)
   n.locations <- nrow(locations)
   parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
+  
   parms.df$species <- factor(parms.df$species, 
                              levels= as.character(unique(parms.df$species)))
   
@@ -96,8 +97,10 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
     pop.df$Disease <- factor(c("S","I"), c("S","I"))
     pop.df$Class <- NULL
     pop.df <- pop.df[,c(1,2,4,5,6,3)]
+    attr(pop.df, "spread.matrices") <- spread.matrices
     return(pop.df)
   }
+  attr(pop, "spread.matrices") <- spread.matrices
   return(pop)
   
 }

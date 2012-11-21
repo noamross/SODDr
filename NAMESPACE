@@ -1,6 +1,8 @@
 export(adjacent.dispersal)
 export(DensityDependence)
+export(exp.dispersal)
 export(MakeLattice)
+export(normal.dispersal)
 export(SODModel)
 import(compiler)
 import(gdata)
