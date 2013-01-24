@@ -5,10 +5,16 @@ Version: 0.1
 Author: Noam Ross <noam.ross@gmail.com>
 Maintainer: Noam Ross <noam.ross@gmail.com>
 URL: https://github.com/noamross/SODDr
+Depends:
+    plyr,
+    gdata,
+    compiler,
+    reshape2
 Imports:
     plyr,
     gdata,
-    compiler
+    compiler,
+    reshape2
 License: MIT
 Collate:
     'DensityDependence.R'
