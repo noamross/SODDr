@@ -106,7 +106,7 @@ Running `SODModel` runs the model and generates a dataframe of population by
 time, species, size class, and disease status
 
 ```{r}
-spmpop.df <- SODModel(treeparms.df,locations,time.steps,init)
+pop.df <- SODModel(treeparms.df,locations,time.steps,init)
 str(pop.df)
 ```
 
@@ -125,7 +125,7 @@ dynamic.plot <- ggplot(pop.df.totals,
 dynamic.plot
 ```
 
-The plot shows This isn't quite steady-state, I suspect because of some rounding errors in copying parameters from the paper.
+The plot shows this isn't quite steady-state, I suspect because of some rounding errors in copying parameters from the paper.
 
 We can make a plot in the style of @Cobb2012, showing only the populations of small and large tanoaks as a proportion of the total population:
 
@@ -273,7 +273,7 @@ Now, for fun, let's make an animation of how the disease progresses through the 
 ```{r tanoak-anim, fig.show='animate', interval=0.2}
 tanspc <- subset(pop3.df, Species=="Tanoak")
 tanspc$Species <- NULL
-tanspc <- ddply(tanspc, c("Time","Location"), function(x) {data.frame(TotTan=sum(x$Population[which(x$SizeClass=="3" | x$SizeClass=="4")]), FracDisease=sum(x$Population[which(x$Disease=="I" & (x$SizeClass=="3" | x$SizeClass=="4"))])/sum(x$Population[which(x$SizeClass=="3" | x$SizeClass=="4")]))})
+tanspc <- ddply(tanspc, c("Time","Location"), function(x) {data.frame(TotTan=sum(x$Population[which(x$SizeClass=="3" | x$SizeClass=="4")]), FracDisease=sum(x$Population[which(x$Disease=="I" & (x$SizeClass=="3" | x$SizeClass=="4"))])/sum(x$Population[which(x$SizeClass=="3" | x$SizeClass=="4")]))}, .progress="text")
 tanspc <- merge(tanspc, as.data.frame(locations), by.x="Location", by.y="location")
 dis.limits <- c(min(tanspc$FracDisease),max(tanspc$FracDisease))
 pop.limits <- c(min(tanspc$TotTan),max(tanspc$TotTan))

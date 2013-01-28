@@ -5,3 +5,4 @@
 .DS_Store
 .Rbuildignore
 *.prof
+data/redwood_plot_network.csv
