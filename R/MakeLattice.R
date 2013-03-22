@@ -15,12 +15,17 @@ MakeLattice <- function(nx, ny, dist=1) {
 #'@export
 MakeHexLattice <- function(nx,ny,dist=1) {
   locations <- cbind(location = 1:(nx*ny),
-                     x = rep(seq(from=0, by=dist/2, length.out=2*nx),
-                             each=ny),
-                     y = rep(c(seq(from=0, by = dist*sqrt(3), length.out=ny),
-                               seq(from=dist*sqrt(3)/2, by=dist*sqrt(3), length.out=ny)),
-                             times=ny))
+                     x = sort(c(rep(seq(from=0, by=dist, length.out=nx),
+                                    each=ceiling(ny/2)),
+                                rep(seq(from=dist/2, by=dist, length.out=nx),
+                                    each=floor(ny/2)))),
+                     y = rep(c(seq(from=0, by = dist*sqrt(3), 
+                                   length.out=ceiling(ny/2)),
+                               seq(from=dist*sqrt(3)/2, by=dist*sqrt(3),
+                                   length.out=floor(ny/2))),
+                             times=nx))
   class(locations) <- c(class(locations), "lattice")
   attr(locations, "gridsize") <- dist
   return(locations)
 }
+
