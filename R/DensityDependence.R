@@ -1,11 +1,11 @@
 
-DensityDependence.Rfun <- function(pop, space) { 
-  1 - sum(pop*space)
+DensityDependence.Rfun <- function(pop, compete) { 
+  1 - sum(pop*compete)
 }
 
 
 require(compiler)
-#' Produced multiplier for new recruits given population and space vectors
+#' Produced multiplier for new recruits given population and competition vectors
 #'@import compiler
 #'@export
 DensityDependence <- cmpfun(DensityDependence.Rfun)

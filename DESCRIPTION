@@ -9,12 +9,14 @@ Depends:
     plyr,
     gdata,
     compiler,
-    reshape2
+    reshape2,
+    Matrix
 Imports:
     plyr,
     gdata,
     compiler,
-    reshape2
+    reshape2,
+    Matrix
 License: MIT
 Collate:
     'DensityDependence.R'

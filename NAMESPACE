@@ -1,6 +1,7 @@
 export(adjacent.dispersal)
 export(DensityDependence)
 export(exp.dispersal)
+export(MakeHexLattice)
 export(MakeLattice)
 export(normal.dispersal)
 export(SODModel)

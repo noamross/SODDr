@@ -1,17 +1,36 @@
 #'Runs the disease model.  Outputs a large matrix of population by species, sizeclass, location
-#'@import plyr reshape2
+#'@import plyr reshape2 Matrix
 #'@export
-SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose=interactive()) {
+SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.out=TRUE, verbose=interactive(), stochastic.d=FALSE, stochastic.e=FALSE) {
   
   #Tests
   if(!all.equal(dim(init), c(nrow(locations), 2*nrow(parms.df)))) {
     stop("Dimensions of initial values and parameters do not match")
   }
   
-  parms.df$class <- 1:nrow(parms.df)
-  n.locations <- nrow(locations)
-  parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
+  if(!(length(lambda.ex) == 1 || 
+       length(lambda.ex) == length(time.steps) ||
+       length(lambda.ex) == length(locations) ||
+       length(lambda.ex) == length(locations) * length(time.steps))) {
+    stop("lambda.ex must be 1 or size to match time steps, 
+          number of locations, or both")
+  }
   
+  if(!(stochastic.e == FALSE ||
+       stochastic.e == NULL ||
+       (class(stochastic.e) == "numeric" & 
+        length(stochastic.e) == length(time.steps)))) {
+    stop("stochastic.e must be FALSE, NULL, or a numeric vector of the same
+          length as time.steps")
+  }
+  
+  
+  n.locations <- nrow(locations)
+  
+  #Clean up the parms data frame
+  
+  parms.df$class <- 1:nrow(parms.df)
+  parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
   parms.df$species <- factor(parms.df$species, 
                              levels= as.character(unique(parms.df$species)))
   
@@ -24,20 +43,24 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
   # TODO: Make this into a function
   
   #Unload list of parms into memory
-  for(i in 1:length(parms.obj)) assign(names(parms.obj)[i], parms.obj[[i]])
+  list2env(parms.obj, envir=environment())
+#  for(i in 1:length(parms.obj)) assign(names(parms.obj)[i], parms.obj[[i]])
   
   tran.mat <- matrix(0, nrow=n.classes*2, ncol=n.classes*2)
   diags <- row(tran.mat) - col(tran.mat)
   fec.mat <- tran.mat
   diag(tran.mat) <- 1 - trans.vec - mort.vec
   
-  tran.mat[diags==1] <- diag(tran.mat)[-(nrow(tran.mat))] * rep(c(1,0),n.classes)[-(nrow(tran.mat))]
-  tran.mat[diags==-1] <- diag(tran.mat)[-1] * rep(c(1,0),n.classes)[-(nrow(tran.mat))]
+#  tran.mat[diags==1] <- diag(tran.mat)[-(nrow(tran.mat))] * rep(c(1,0),n.classes)[-(nrow(tran.mat))]
+#  tran.mat[diags==-1] <- diag(tran.mat)[-1] * rep(c(1,0),n.classes)[-(nrow(tran.mat))]
   
   tran.mat[diags==2] <- trans.vec[1:(n.classes*2 - 2)]
-  tran.mat[diags==3] <- trans.vec[1:(n.classes*2 -3)] * rep(c(1,0),n.classes)[1:(n.classes*2 - 3)]
-  tran.mat[diags==1] <- tran.mat[diags==1] + trans.vec[1:(n.classes*2-1)] * rep(c(0,1), n.classes)[1:(n.classes*2 - 1)]
-  
+#  tran.mat[diags==3] <- trans.vec[1:(n.classes*2 -3)] * rep(c(1,0),n.classes)[1:(n.classes*2 - 3)]
+#  tran.mat[diags==1] <- tran.mat[diags==1] + trans.vec[1:(n.classes*2-1)] * rep(c(0,1), n.classes)[1:(n.classes*2 - 1)]
+  for(i in 1:n.species) {
+    classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
+    tran.mat[classindex[1],classindex] <- tran.mat[classindex[1],classindex] + (resprout.vec*mort.vec)[classindex]  #Fecundities + Death X Resprout probabilties
+  }
   # Step update is (trans.mat * force.mat + fec.mat) * population
   
   # Create empty data matrix and populate with initial values
@@ -54,6 +77,13 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
   spore.burden <- matrix(NA, nrow=n.classes, ncol=n.locations)
   #Rprof("out.prof")
 
+  #Create matrix of external spore burden
+  
+  if (length(lambda.ex == 1)) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations)
+  if (length(lambda.ex == length(time.steps))) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations)
+  if (length(lambda.ex == n.locations)) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations, byrow=TRUE)
+  if (length(lambda.ex) == length(locations) * length(time.steps)) spore.burden.ex <- lambda.ex
+  
   if(verbose) {
   oldopt <- getOption("warn")
   options(warn=2)
@@ -69,23 +99,54 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
     for(class in classes) {
       spore.burden[class,] <- pop[time,,class*2] %*% spread.matrices[class,,]
     }
+    spore.burden <- rbind(spore.burden, spore.burden.ex[time,])
     
     force.infection <- waifw %*% spore.burden
-    real.recovery <- (1-force.infection) * recover
+    infection.rate <- 1 - exp(-force.infection)
+    real.recovery <- (1-infection.rate) * recover
+    
+    if(stochastic.d==FALSE) {
     
     for(location in 1:n.locations) {
-      force <- force.infection[,location]
-      real.rec <- real.recovery[,location]
-      force.matrix <- matrix(rbind(c(1-force, force), c(real.rec, 1-real.rec)), 2*n.classes, 2*n.classes, byrow=TRUE)
-      
-      E <- DensityDependence(pop[time,location,], space)
-      for(i in 1:n.species) {
-        classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
-        fec.mat[classindex[1],classindex] <- (E*recruit.vec + resprout.vec*mort.vec)[classindex]  #Fecundities + Death X Resprout probabilties
+        infect <- infection.rate[,location]
+        real.rec <- real.recovery[,location]
+        inf.matrix <- diag(as.vector(rbind(1-infect,1-real.rec)))
+        inf.matrix[row(inf.matrix) - col(inf.matrix) == 1] <- as.vector(rbind(0,infect))[-1]
+        inf.matrix[row(inf.matrix) - col(inf.matrix) == -1] <- as.vector(rbind(0,real.rec))[-1]
+        
+        pop.inf <- inf.matrix %*% pop[time,location,]
+        
+        E <- DensityDependence(pop[time,location,], compete)
+        for(i in 1:n.species) {
+          classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
+          fec.mat[classindex[1],classindex] <- (E*recruit.vec)[classindex]
+        }
+        trans.mat <- tran.mat + fec.mat
+        pop[time + 1,location,] <- trans.mat %*% pop.inf
       }
-      trans.mat <- tran.mat*force.matrix + fec.mat
-      pop[time + 1,location,] <- trans.mat %*% pop[time,location,]
+    } else {
+      
+      for(location in 1:n.locations) {
+        infect <- infection.rate[,location]
+        real.rec <- real.recovery[,location]
+        inf.matrix <- diag(as.vector(rbind(1-infect,1-real.rec)))
+        inf.matrix[row(inf.matrix) - col(inf.matrix) == 1] <- as.vector(rbind(0,infect))[-1]
+        inf.matrix[row(inf.matrix) - col(inf.matrix) == -1] <- as.vector(rbind(0,real.rec))[-1]
+        
+        pop.inf <- colSums(aaply(1:(n.classes*2),1,function(x) rmultinom(n=1, size=pop[time,location,x], prob=inf.matrix[,x])))
+        
+        pop.tran <- colSums(aaply(1:(n*classes*2),1, function(x) rmultinom(n=1, size=pop.inf[x], prob=tran.mat[,x])))
+        
+        E <- DensityDependence(pop[time,location,], compete)
+        for(i in 1:n.species) {
+          classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
+          fec.mat[classindex[1],classindex] <- (E*recruit.vec)[classindex]
+        }
+        recruits <- pop.inf*recruit.vec
+        pop[time + 1,location,] <- trans.mat %*% pop[time,location,]
+      }
     }
+  
   if(verbose) z$step()
   }
   if(df.out) {
@@ -110,7 +171,11 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
 MakeParmsList <- function(parms.df) {
   
   classes <- 1:nrow(parms.df)
-  names(classes) <- paste(parms.df$species, parms.df$sizeclass, sep=",")
+  names(classes) <- paste(parms.df$species, parms.df$sizeclass, sep=".")
+  
+  parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
+  parms.df$species <- factor(parms.df$species, 
+                             levels= as.character(unique(parms.df$species)))
   
   sizeclasses <- as.vector(table(parms.df$species))
   names(sizeclasses) <- 1:length(unique(parms.df$species))
@@ -120,9 +185,9 @@ MakeParmsList <- function(parms.df) {
     sizeclasses = sizeclasses,
     n.species = length(unique(parms.df$species)),
     n.classes = nrow(parms.df),
-    waifw = as.matrix(parms.df[,matchcols(parms.df, 
+    waifw = cbind(as.matrix(parms.df[,matchcols(parms.df, 
                                               with="waifw[0-9]+"),],
-                      dimnames = list(names(classes),names(classes))),
+                      dimnames = list(names(classes),names(classes))), waifw.ex=parms.df$waifw.ex),
     recruit.vec = as.vector(rbind(parms.df$S.recruit, 
                                   parms.df$I.recruit)),
     mort.vec = as.vector(rbind(parms.df$S.mortality, 
@@ -132,7 +197,7 @@ MakeParmsList <- function(parms.df) {
     resprout.vec = as.vector(rbind(parms.df$S.resprout, 
                                    parms.df$I.resprout)),
     recover = parms.df$recover,
-    space = parms.df$space
+    compete = parms.df$compete
   )
   return(parms.obj)
 }
@@ -140,14 +205,15 @@ MakeParmsList <- function(parms.df) {
 
 
 
-#'Generate a dispersal matrix from locations.
+#'Generate a dispersal matrix from locations.  The matrix calculates pairwise
+#'distances between locations weighted by the dispersal kernel of each class
 #'@import plyr
 MakeDispMatrix <- function(parms.df, locations, parms.obj) {
   
   distance.matrix <- as.matrix(dist(locations[,c("x","y")]))
   
   # Generate dispersal matrices for each class
-  spread.matrices <- daply(parms.df,"class", function(x) {
+  spread.matrices <- daply(parms.df,.(class), function(x) {
     do.call(x$kernel.fn, 
             unname(c(list(distance.matrix), 
                      as.list(na.omit(x[matchcols(x, "kernel.par[0-9]+")]))
