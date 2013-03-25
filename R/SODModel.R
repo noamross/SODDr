@@ -1,7 +1,9 @@
 #'Runs the disease model.  Outputs a large matrix of population by species, sizeclass, location
 #'@import plyr reshape2
 #'@export
-SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.out=TRUE, verbose=interactive(), stochastic.d=FALSE, stochastic.e=FALSE) {
+SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, 
+                     df.out=TRUE, verbose=interactive(), stochastic.d=FALSE, 
+                     stochastic.e=NULL) {
   
   #Tests
   if(!all.equal(dim(init), c(nrow(locations), 2*nrow(parms.df)))) {
@@ -16,9 +18,8 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
           number of locations, or both")
   }
   
-  if(!(stochastic.e == FALSE ||
-       stochastic.e == NULL ||
-       (class(stochastic.e) == "numeric" & 
+  if(!(is.null(stochastic.e) ||
+       (class(stochastic.e) == "numeric" && 
         length(stochastic.e) == length(time.steps)))) {
     stop("stochastic.e must be FALSE, NULL, or a numeric vector of the same
           length as time.steps")
@@ -36,32 +37,28 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
   
   #Convert parameter data frame into list of parameters
   parms.obj <- MakeParmsList(parms.df)
+  
   #Create dispersal matrices
   spread.matrices <- MakeDispMatrix(parms.df, locations, parms.obj)  
   
-  # Create transition matrix
-  # TODO: Make this into a function
-  
   #Unload list of parms into memory
   list2env(parms.obj, envir=environment())
-#  for(i in 1:length(parms.obj)) assign(names(parms.obj)[i], parms.obj[[i]])
+
+  
+  #Create the transition matrix, which includes size transitions, mortality,
+  # and resprouting, but not recruitment or infection
   
   tran.mat <- matrix(0, nrow=n.classes*2, ncol=n.classes*2)
   diags <- row(tran.mat) - col(tran.mat)
   fec.mat <- tran.mat
   diag(tran.mat) <- 1 - trans.vec - mort.vec
-  
-#  tran.mat[diags==1] <- diag(tran.mat)[-(nrow(tran.mat))] * rep(c(1,0),n.classes)[-(nrow(tran.mat))]
-#  tran.mat[diags==-1] <- diag(tran.mat)[-1] * rep(c(1,0),n.classes)[-(nrow(tran.mat))]
-  
   tran.mat[diags==2] <- trans.vec[1:(n.classes*2 - 2)]
-#  tran.mat[diags==3] <- trans.vec[1:(n.classes*2 -3)] * rep(c(1,0),n.classes)[1:(n.classes*2 - 3)]
-#  tran.mat[diags==1] <- tran.mat[diags==1] + trans.vec[1:(n.classes*2-1)] * rep(c(0,1), n.classes)[1:(n.classes*2 - 1)]
+  
   for(i in 1:n.species) {
     classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
-    tran.mat[classindex[1],classindex] <- tran.mat[classindex[1],classindex] + (resprout.vec*mort.vec)[classindex]  #Fecundities + Death X Resprout probabilties
+    tran.mat[classindex[1],classindex] <- tran.mat[classindex[1],classindex] + 
+                                          (resprout.vec*mort.vec)[classindex] 
   }
-  # Step update is (trans.mat * force.mat + fec.mat) * population
   
   # Create empty data matrix and populate with initial values
   
@@ -75,15 +72,21 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
   
   pop[1,,] <- init
   spore.burden <- matrix(NA, nrow=n.classes+1, ncol=n.locations)
-  #Rprof("out.prof")
 
-  #Create matrix of external spore burden
+  # Create matrix of external spore burden at all times and locations
   
   if (length(lambda.ex == 1)) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations)
   if (length(lambda.ex == length(time.steps))) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations)
   if (length(lambda.ex == n.locations)) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations, byrow=TRUE)
   if (length(lambda.ex) == length(locations) * length(time.steps)) spore.burden.ex <- lambda.ex
   
+  # Create a time vector of environmental stochasticity if none is given
+  
+  if (is.null(stochastic.e)) {
+    stochastic.e <- rep(1,length(time.steps))
+  }
+    
+  # Initialize a progress bar
   if(verbose) {
   oldopt <- getOption("warn")
   options(warn=2)
@@ -93,15 +96,17 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
   z$init(length(time.steps)-1)
   on.exit(z$term)
   }
+  
+  # Run the simulation
+  
   for(time in time.steps[-(length(time.steps))]) {
     
-    # First act in simulation step.  Given population at each location, calculate spore burden at each location
     for(class in classes) {
       spore.burden[class,] <- pop[time,,class*2] %*% spread.matrices[class,,]
     }
     spore.burden[n.classes+1,] <- spore.burden.ex[time,]
     
-    force.infection <- waifw %*% spore.burden
+    force.infection <- (waifw %*% spore.burden) * stochastic.e[time]
     infection.rate <- 1 - exp(-force.infection)
     real.recovery <- (1-infection.rate) * recover
     
@@ -168,7 +173,7 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
   
 }
 
-
+#'Create a list object from the data frame of parameters
 #'@import gdata
 MakeParmsList <- function(parms.df) {
   
@@ -203,9 +208,6 @@ MakeParmsList <- function(parms.df) {
   )
   return(parms.obj)
 }
-
-
-
 
 #'Generate a dispersal matrix from locations.  The matrix calculates pairwise
 #'distances between locations weighted by the dispersal kernel of each class

@@ -4,7 +4,7 @@
 \usage{
   SODModel(parms.df, locations, time.steps, init,
     lambda.ex = 0, df.out = TRUE, verbose = interactive(),
-    stochastic.d = FALSE, stochastic.e = FALSE)
+    stochastic.d = FALSE, stochastic.e = NULL)
 }
 \description{
   Runs the disease model.  Outputs a large matrix of
