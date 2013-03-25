@@ -1,11 +1,11 @@
 \name{DensityDependence}
 \alias{DensityDependence}
-\title{Produced multiplier for new recruits given population and space vectors}
+\title{Produced multiplier for new recruits given population and competition vectors}
 \usage{
-  DensityDependence(pop, space)
+  DensityDependence(pop, compete)
 }
 \description{
   Produced multiplier for new recruits given population and
-  space vectors
+  competition vectors
 }
 

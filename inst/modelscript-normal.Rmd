@@ -41,22 +41,22 @@ calculate these so as to parameterize the model for steady-state conditions in t
 treeparms.df <- within(treeparms.df, {
 # Calculate the relative space requirements of tanoak size classes
 # based on initial conditions
-space[1:4] <- 0.25*(sum(S.init[1:4])/S.init[1:4])
+compete[1:4] <- 0.25*(sum(S.init[1:4])/S.init[1:4])
 
 # Set recruitment rates to steady-state levels.  For Redwood and Bay, this is 
 # simply the mortality rate divided by the density-dependence coefficient at 
 # simulation start.  For tanoak, which has multiple size classes, it's a but
 # more involved
 
-S.recruit[5] <- S.mortality[5]/(1-sum(S.init * space))
-I.recruit[5] <- I.mortality[5]/(1-sum(S.init * space))
-S.recruit[6] <- S.mortality[6]/(1-sum(S.init * space))
-I.recruit[6] <- I.mortality[6]/(1-sum(S.init * space))
+S.recruit[5] <- S.mortality[5]/(1-sum(S.init * compete))
+I.recruit[5] <- I.mortality[5]/(1-sum(S.init * compete))
+S.recruit[6] <- S.mortality[6]/(1-sum(S.init * compete))
+I.recruit[6] <- I.mortality[6]/(1-sum(S.init * compete))
 
 A2 <- S.transition[1]/(S.transition[2] + S.mortality[2])
 A3 <- (S.transition[2]/(S.transition[3] + S.mortality[3])) * A2
 A4 <- (S.transition[3]/S.mortality[4]) * A3
-S.recruit[1] <- (S.transition[1] + S.mortality[1])/(1-sum(S.init * space)) -
+S.recruit[1] <- (S.transition[1] + S.mortality[1])/(1-sum(S.init * compete)) -
                 (S.recruit[2] * A2 + S.recruit[3] * A3 + S.recruit[4] * A4)
 
 
@@ -106,7 +106,10 @@ Running `SODModel` runs the model and generates a dataframe of population by
 time, species, size class, and disease status
 
 ```{r}
-pop.df <- SODModel(treeparms.df,locations,time.steps,init)
+Rprof()
+pop.df <- SODModel(treeparms.df,locations,time.steps,init, stochastic.d=TRUE)
+Rprof(NULL)
+summaryRprof("Rprof.out")
 str(pop.df)
 ```
 
@@ -207,6 +210,34 @@ paper3.df <- ddply(transform(pop3.df.totals, Size = ifelse(SizeClass == "1" | Si
 paper3.df <- ddply(paper3.df, "Time", transform, Pct=SizePop/sum(SizePop))
 paper3.plot <- ggplot(subset(paper3.df, Species=="Tanoak"), aes(x=Time, y=Pct, lty=Size)) + geom_line(lwd=1) + scale_y_continuous(limits=c(0,0.6), expand=c(0,0)) + scale_x_continuous(expand=c(0,0)) + scale_linetype_manual(values=c(1,5)) + theme_bw() + theme(panel.grid.major=element_blank(), panel.grid.minor=element_blank())
 paper3.plot
+```
+```{r}
+require(grid)
+popp <- subset(pop3.df.totals, Species!="Bay Laurel")
+popp$SizeClass[which(popp$Species=="Redwood")] <- 4
+dynamic.plot <- ggplot(popp, 
+                       aes(x=Time,y=TotPop, fill=Disease, alpha=SizeClass)) + 
+                  geom_area(position="stack") + facet_grid(~Species) +
+    xlab("Time (years)") + ylab("Fraction of population") +
+    scale_alpha_discrete(name="Size Class") +
+    theme(text=element_text(family="Lato Light", size=14),
+        panel.grid.major.x=element_blank(),
+                panel.grid.minor.x=element_blank(),
+        panel.grid.minor.y=element_blank(),
+        panel.grid.major.y=element_line(colour="#ECECEC", size=0.5, linetype=1),
+        axis.ticks.y=element_blank(),
+        panel.background=element_blank(),
+        strip.background=element_blank(),
+        legend.title=element_text(size=18),
+  #      legend.position=c(0.85,0.1),
+ #       legend.key.size=unit(1, "cm"),
+        legend.text=element_text(size=22),
+        axis.title=element_text(size=22),
+        strip.text=element_text(size=22),
+        axis.text=element_text(color="black",size=13),
+        axis.title.x=element_text(vjust=-.4))
+dynamic.plot
+ggsave("~/Dropbox/openquals/modelplot.svg",dynamic.plot, height=5, width=9)
 ```
 
 Again, qualitatively similar to the original results:

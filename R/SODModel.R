@@ -1,5 +1,5 @@
 #'Runs the disease model.  Outputs a large matrix of population by species, sizeclass, location
-#'@import plyr reshape2 Matrix
+#'@import plyr reshape2
 #'@export
 SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.out=TRUE, verbose=interactive(), stochastic.d=FALSE, stochastic.e=FALSE) {
   
@@ -74,7 +74,7 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
   
   
   pop[1,,] <- init
-  spore.burden <- matrix(NA, nrow=n.classes, ncol=n.locations)
+  spore.burden <- matrix(NA, nrow=n.classes+1, ncol=n.locations)
   #Rprof("out.prof")
 
   #Create matrix of external spore burden
@@ -99,7 +99,7 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
     for(class in classes) {
       spore.burden[class,] <- pop[time,,class*2] %*% spread.matrices[class,,]
     }
-    spore.burden <- rbind(spore.burden, spore.burden.ex[time,])
+    spore.burden[n.classes+1,] <- spore.burden.ex[time,]
     
     force.infection <- waifw %*% spore.burden
     infection.rate <- 1 - exp(-force.infection)
@@ -135,15 +135,17 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, df.ou
         
         pop.inf <- colSums(aaply(1:(n.classes*2),1,function(x) rmultinom(n=1, size=pop[time,location,x], prob=inf.matrix[,x])))
         
-        pop.tran <- colSums(aaply(1:(n*classes*2),1, function(x) rmultinom(n=1, size=pop.inf[x], prob=tran.mat[,x])))
+        pop.tran <- colSums(aaply(1:(n.classes*2),1, function(x) rmultinom(n=1, size=pop.inf[x], prob=tran.mat[,x])))
         
         E <- DensityDependence(pop[time,location,], compete)
+        recruitment <- rpois(n=n.classes*2, lambda=E*pop.inf*recruit.vec)
+        recruits <- rep(0, n.classes*2)
         for(i in 1:n.species) {
           classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
-          fec.mat[classindex[1],classindex] <- (E*recruit.vec)[classindex]
+          recruits[classindex[1]] <- sum(recruitment[classindex])
         }
-        recruits <- pop.inf*recruit.vec
-        pop[time + 1,location,] <- trans.mat %*% pop[time,location,]
+        
+        pop[time + 1,location,] <- pop.tran + recruits
       }
     }
   
