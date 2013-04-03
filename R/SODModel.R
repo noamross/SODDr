@@ -225,5 +225,4 @@ MakeDispMatrix <- function(parms.df, locations, parms.obj) {
     )
   })
   return(spread.matrices)
-}
-  
+}  
