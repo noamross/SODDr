@@ -14,7 +14,7 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0,
        length(lambda.ex) == length(time.steps) ||
        length(lambda.ex) == length(locations) ||
        length(lambda.ex) == length(locations) * length(time.steps))) {
-    stop("lambda.ex must be 1 or size to match time steps, 
+    stop("lambda.ex must be 1 or size of match time steps, 
           number of locations, or both")
   }
   
