@@ -1,13 +1,17 @@
 \name{SODModel}
 \alias{SODModel}
-\title{Runs the disease model.  Outputs a large matrix of population by species, sizeclass, location}
+\title{Run the SOD model}
 \usage{
-  SODModel(parms.df, locations, time.steps, init,
-    lambda.ex = 0, df.out = TRUE, verbose = interactive(),
-    stochastic.d = FALSE, stochastic.e = NULL)
+  SODModel(parms, times, locations, init, lambda.ex = 0,
+    stochastic.e = NULL, stochastic.d = FALSE,
+    verbose = interactive(), .parallel = FALSE)
+}
+\arguments{
+  \item{.parallel}{Run the simulation in parallel or not?}
+
+  \item{...}{arguments to be passed to SODModel}
 }
 \description{
-  Runs the disease model.  Outputs a large matrix of
-  population by species, sizeclass, location
+  Run the SOD model
 }
 

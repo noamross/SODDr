@@ -1,28 +1,77 @@
-#'Runs the disease model.  Outputs a large matrix of population by species, sizeclass, location
-#'@import plyr reshape2
+# TODO: Check that input dimensions match up
+#  - Locations and classes against initial conditions
+#  - Create separate function error_check
+  
+# Make robust to single location, single class, single replicate
+# First check if dimnames are right, and use aperm
+# Otherwise use order of array
+
+# Make this interruptible? How, saving results to disk each time?
+  
+# Make base function take vector of parameters, with matrix for replicate runs
+# Check dimensions of parameters and initial conditions, if same do that number of runs
+# If different then multiply.
+
+
+#'Run the SOD model
+#'@param .parallel Run the simulation in parallel or not?
+#'@param ... arguments to be passed to SODModel
+#'@import foreach doRNG iterators
 #'@export
-SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0, 
-                     df.out=TRUE, verbose=interactive(), stochastic.d=FALSE, 
-                     stochastic.e=NULL) {
+SODModel <- function(parms, times, locations, init, lambda.ex = 0, 
+                     stochastic.e=NULL, stochastic.d=FALSE, 
+                     verbose=interactive(), .parallel=FALSE) {
+  
+  if (length(dim(init)) == 3) {
+    
+    `%op%` <- if (.parallel) `%dorng%` else `%do%`
+    iter <- iapply(inits, 3)
+    
+    #TODO: Make progress bar for multiple runs, make it smart to pass state into 
+    #model.out
+    model.out <- foreach(init=iter, .combine=abind2, .multicombine=TRUE) %op% {
+      SODModelrun(parms, times, locations, init, lambda.ex, 
+                  stochastic.e, stochastic.d, 
+                  verbose=ifelse(.parallel, FALSE, verbose)) 
+    }
+
+    names(dimnames(model.out)) <- c("Time", "Location", "Class", "Replicate")
+    
+  } else if (length(dim(init)) == 2) {
+    model.out <-SODModelrun(parms, times, locations, init, lambda.ex, 
+                            stochastic.e, stochastic.d, verbose=verbose) 
+  }
+  class(model.out) <- "SODD"
+  return(model.out)
+}
+
+
+#TODO: Make times argument more flexible: scalar or vector, non-consective
+#means thinning output
+#'Runs the disease model.  Outputs a large matrix of population by species, 
+#'sizeclass, location
+#'@import plyr reshape2
+SODModelrun <- function(parms, times, locations, init, lambda.ex, stochastic.e, 
+                        stochastic.d, verbose) {
   
   #Tests
-  if(!all.equal(dim(init), c(nrow(locations), 2*nrow(parms.df)))) {
+  if(!all.equal(dim(init), c(nrow(locations), 2*nrow(parms)))) {
     stop("Dimensions of initial values and parameters do not match")
   }
   
   if(!(length(lambda.ex) == 1 || 
-       length(lambda.ex) == length(time.steps) ||
-       length(lambda.ex) == length(locations) ||
-       length(lambda.ex) == length(locations) * length(time.steps))) {
+       length(lambda.ex) == length(times) ||
+       length(lambda.ex) == nrow(locations) ||
+       length(lambda.ex) == nrow(locations) * length(times))) {
     stop("lambda.ex must be 1 or size of match time steps, 
           number of locations, or both")
   }
   
   if(!(is.null(stochastic.e) ||
        (class(stochastic.e) == "numeric" && 
-        length(stochastic.e) == length(time.steps)))) {
+        length(stochastic.e) == length(times)))) {
     stop("stochastic.e must be FALSE, NULL, or a numeric vector of the same
-          length as time.steps")
+          length as times")
   }
   
   
@@ -30,16 +79,16 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0,
   
   #Clean up the parms data frame
   
-  parms.df$class <- 1:nrow(parms.df)
-  parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
-  parms.df$species <- factor(parms.df$species, 
-                             levels= as.character(unique(parms.df$species)))
+  parms$class <- 1:nrow(parms)
+  parms$kernel.fn <- as.character(parms$kernel.fn)
+  parms$species <- factor(parms$species, 
+                             levels= as.character(unique(parms$species)))
   
   #Convert parameter data frame into list of parameters
-  parms.obj <- MakeParmsList(parms.df)
+  parms.obj <- MakeParmsList(parms)
   
   #Create dispersal matrices
-  spread.matrices <- MakeDispMatrix(parms.df, locations, parms.obj)  
+  spread.matrices <- MakeDispMatrix(parms, locations, parms.obj)  
   
   #Unload list of parms into memory
   list2env(parms.obj, envir=environment())
@@ -62,11 +111,11 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0,
   
   # Create empty data matrix and populate with initial values
   
-  pop <- array(NA, dim=c(length(time.steps), n.locations, 2*n.classes), 
-               dimnames=list(Time=time.steps,
+  pop <- array(NA, dim=c(length(times), n.locations, 2*n.classes), 
+               dimnames=list(Time=times,
                              Location=1:n.locations, 
                              Class=paste(rep(names(classes),each=2),
-                                         rep(c("S","I"),n.classes),sep=",")))
+                                         rep(c("S","I"),n.classes),sep=".")))
   
   
   
@@ -75,15 +124,15 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0,
 
   # Create matrix of external spore burden at all times and locations
   
-  if (length(lambda.ex == 1)) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations)
-  if (length(lambda.ex == length(time.steps))) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations)
-  if (length(lambda.ex == n.locations)) spore.burden.ex <- matrix(lambda.ex, nrow=length(time.steps), ncol=n.locations, byrow=TRUE)
-  if (length(lambda.ex) == length(locations) * length(time.steps)) spore.burden.ex <- lambda.ex
+  if (length(lambda.ex == 1)) spore.burden.ex <- matrix(lambda.ex, nrow=length(times), ncol=n.locations)
+  if (length(lambda.ex == length(times))) spore.burden.ex <- matrix(lambda.ex, nrow=length(times), ncol=n.locations)
+  if (length(lambda.ex == n.locations)) spore.burden.ex <- matrix(lambda.ex, nrow=length(times), ncol=n.locations, byrow=TRUE)
+  if (length(lambda.ex) == length(locations) * length(times)) spore.burden.ex <- lambda.ex
   
   # Create a time vector of environmental stochasticity if none is given
   
   if (is.null(stochastic.e)) {
-    stochastic.e <- rep(1,length(time.steps))
+    stochastic.e <- rep(1,length(times))
   }
     
   # Initialize a progress bar
@@ -93,13 +142,13 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0,
   z <- try(create_progress_bar("time"), silent=TRUE)
   if(class(z)=="try-error") z <- try(create_progress_bar("text"))
   options(warn=oldopt)
-  z$init(length(time.steps)-1)
+  z$init(length(times)-1)
   on.exit(z$term)
   }
   
   # Run the simulation
   
-  for(time in time.steps[-(length(time.steps))]) {
+  for(time in times[-(length(times))]) {
     
     for(class in classes) {
       spore.burden[class,] <- pop[time,,class*2] %*% spread.matrices[class,,]
@@ -156,55 +205,46 @@ SODModel <- function(parms.df, locations, time.steps, init, lambda.ex = 0,
   
   if(verbose) z$step()
   }
-  if(df.out) {
-    pop.df <- melt(pop, value.name="Population")
-    pop.df$Class <- factor(pop.df$Class, levels <- dimnames(pop)$Class)
-    pop.df <- arrange(pop.df, Time,Location,Class)
-    pop.df$Species <- factor(rep(parms.df$species, each=2)) #, levels=levels(parms.df$species))
-    pop.df$SizeClass <- factor(rep(parms.df$sizeclass, each=2))
-    pop.df$Disease <- factor(c("S","I"), c("S","I"))
-    pop.df$Class <- NULL
-    pop.df <- pop.df[,c(1,2,4,5,6,3)]
-    attr(pop.df, "spread.matrices") <- spread.matrices
-    return(pop.df)
-  }
+  
+
   attr(pop, "spread.matrices") <- spread.matrices
+  attr(pop, "locations") <- locations
   return(pop)
   
 }
 
 #'Create a list object from the data frame of parameters
 #'@import gdata
-MakeParmsList <- function(parms.df) {
+MakeParmsList <- function(parms) {
   
-  classes <- 1:nrow(parms.df)
-  names(classes) <- paste(parms.df$species, parms.df$sizeclass, sep=".")
+  classes <- 1:nrow(parms)
+  names(classes) <- paste(parms$species, parms$sizeclass, sep=".")
   
-  parms.df$kernel.fn <- as.character(parms.df$kernel.fn)
-  parms.df$species <- factor(parms.df$species, 
-                             levels= as.character(unique(parms.df$species)))
+  parms$kernel.fn <- as.character(parms$kernel.fn)
+  parms$species <- factor(parms$species, 
+                             levels= as.character(unique(parms$species)))
   
-  sizeclasses <- as.vector(table(parms.df$species))
-  names(sizeclasses) <- 1:length(unique(parms.df$species))
+  sizeclasses <- as.vector(table(parms$species))
+  names(sizeclasses) <- 1:length(unique(parms$species))
   
   parms.obj <- list(
     classes = classes,
     sizeclasses = sizeclasses,
-    n.species = length(unique(parms.df$species)),
-    n.classes = nrow(parms.df),
-    waifw = cbind(as.matrix(parms.df[,matchcols(parms.df, 
+    n.species = length(unique(parms$species)),
+    n.classes = nrow(parms),
+    waifw = cbind(as.matrix(parms[,matchcols(parms, 
                                               with="waifw[0-9]+"),],
-                      dimnames = list(names(classes),names(classes))), waifw.ex=parms.df$waifw.ex),
-    recruit.vec = as.vector(rbind(parms.df$S.recruit, 
-                                  parms.df$I.recruit)),
-    mort.vec = as.vector(rbind(parms.df$S.mortality, 
-                               parms.df$I.mortality)),
-    trans.vec = as.vector(rbind(parms.df$S.transition, 
-                                parms.df$I.transition)),
-    resprout.vec = as.vector(rbind(parms.df$S.resprout, 
-                                   parms.df$I.resprout)),
-    recover = parms.df$recover,
-    compete = parms.df$compete
+                      dimnames = list(names(classes),names(classes))), waifw.ex=parms$waifw.ex),
+    recruit.vec = as.vector(rbind(parms$S.recruit, 
+                                  parms$I.recruit)),
+    mort.vec = as.vector(rbind(parms$S.mortality, 
+                               parms$I.mortality)),
+    trans.vec = as.vector(rbind(parms$S.transition, 
+                                parms$I.transition)),
+    resprout.vec = as.vector(rbind(parms$S.resprout, 
+                                   parms$I.resprout)),
+    recover = parms$recover,
+    compete = parms$compete
   )
   return(parms.obj)
 }
@@ -212,12 +252,12 @@ MakeParmsList <- function(parms.df) {
 #'Generate a dispersal matrix from locations.  The matrix calculates pairwise
 #'distances between locations weighted by the dispersal kernel of each class
 #'@import plyr
-MakeDispMatrix <- function(parms.df, locations, parms.obj) {
+MakeDispMatrix <- function(parms, locations, parms.obj) {
   
-  distance.matrix <- as.matrix(dist(locations[,c("x","y")]))
+  distance.matrix <- as.matrix(dist(locations))
   
   # Generate dispersal matrices for each class
-  spread.matrices <- daply(parms.df,.(class), function(x) {
+  spread.matrices <- daply(parms,.(class), function(x) {
     do.call(x$kernel.fn, 
             unname(c(list(distance.matrix), 
                      as.list(na.omit(x[matchcols(x, "kernel.par[0-9]+")]))
