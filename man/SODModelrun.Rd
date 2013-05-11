@@ -4,7 +4,7 @@
 sizeclass, location}
 \usage{
   SODModelrun(parms, times, locations, init, lambda.ex,
-    stochastic.e, stochastic.d, verbose)
+    stochastic.e, stochastic.d, verbose, run = NULL)
 }
 \description{
   Runs the disease model.  Outputs a large matrix of

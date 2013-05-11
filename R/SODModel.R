@@ -5,6 +5,8 @@
 # Make robust to single location, single class, single replicate
 # First check if dimnames are right, and use aperm
 # Otherwise use order of array
+# Make sure dimnames flow through model, 
+# Make output higher-dimensional array?
 
 # Make this interruptible? How, saving results to disk each time?
   
@@ -16,32 +18,46 @@
 #'Run the SOD model
 #'@param .parallel Run the simulation in parallel or not?
 #'@param ... arguments to be passed to SODModel
-#'@import foreach doRNG iterators
+#'@import foreach doRNG iterators abind plyr
 #'@export
-SODModel <- function(parms, times, locations, init, lambda.ex = 0, 
+SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0, 
                      stochastic.e=NULL, stochastic.d=FALSE, 
                      verbose=interactive(), .parallel=FALSE) {
   
+  init=drop(abind(rep(list(init),reps), along=3))
   if (length(dim(init)) == 3) {
-    
+
+    n.runs <- dim(init)[3]
     `%op%` <- if (.parallel) `%dorng%` else `%do%`
-    iter <- iapply(inits, 3)
+    iter <- iapply(init, 3)
+    iterc <- icount(n.runs)
     
-    #TODO: Make progress bar for multiple runs, make it smart to pass state into 
-    #model.out
-    model.out <- foreach(init=iter, .combine=abind2, .multicombine=TRUE) %op% {
+    if(verbose) {
+      message(dim(inits)[3], " Simulations of ",
+              tail(times, 1) - times[1] + 1, " time steps each")
+      z <- plyr:::txtTimerBar((tail(times, 1) - times[1] + 1)*n.runs)
+    }
+
+    model.out <- foreach(run=iterc, init=iter, .combine=abind2,
+                         .multicombine=TRUE) %op% {
+      stochastic.ev = eval(stochastic.e)
       SODModelrun(parms, times, locations, init, lambda.ex, 
-                  stochastic.e, stochastic.d, 
-                  verbose=ifelse(.parallel, FALSE, verbose)) 
+                  stochastic.e=stochastic.ev, stochastic.d,
+                  verbose=ifelse(.parallel, FALSE, verbose), run) 
     }
 
     names(dimnames(model.out)) <- c("Time", "Location", "Class", "Replicate")
     
+    if(verbose) {
+      setTxtProgressBar(z, n.runs*(tail(times, 1) - times[1] + 1))
+      close(z)
+    }
+
   } else if (length(dim(init)) == 2) {
     model.out <-SODModelrun(parms, times, locations, init, lambda.ex, 
                             stochastic.e, stochastic.d, verbose=verbose) 
   }
-  class(model.out) <- "SODD"
+  class(model.out) <- c("SODD", "array")
   return(model.out)
 }
 
@@ -52,7 +68,7 @@ SODModel <- function(parms, times, locations, init, lambda.ex = 0,
 #'sizeclass, location
 #'@import plyr reshape2
 SODModelrun <- function(parms, times, locations, init, lambda.ex, stochastic.e, 
-                        stochastic.d, verbose) {
+                        stochastic.d, verbose, run=NULL) {
   
   #Tests
   if(!all.equal(dim(init), c(nrow(locations), 2*nrow(parms)))) {
@@ -135,16 +151,7 @@ SODModelrun <- function(parms, times, locations, init, lambda.ex, stochastic.e,
     stochastic.e <- rep(1,length(times))
   }
     
-  # Initialize a progress bar
-  if(verbose) {
-  oldopt <- getOption("warn")
-  options(warn=2)
-  z <- try(create_progress_bar("time"), silent=TRUE)
-  if(class(z)=="try-error") z <- try(create_progress_bar("text"))
-  options(warn=oldopt)
-  z$init(length(times)-1)
-  on.exit(z$term)
-  }
+
   
   # Run the simulation
   
@@ -203,7 +210,7 @@ SODModelrun <- function(parms, times, locations, init, lambda.ex, stochastic.e,
       }
     }
   
-  if(verbose) z$step()
+  if(verbose) setTxtProgressBar(get("z", parent.frame()), time + (length(times-1)*(run-1)))
   }
   
 
@@ -266,3 +273,7 @@ MakeDispMatrix <- function(parms, locations, parms.obj) {
   })
   return(spread.matrices)
 }  
+
+
+# First plot: Big and small tanoaks, mean and many replicates on the same plot
+
