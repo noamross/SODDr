@@ -1,5 +1,6 @@
 # package tests May 9, 2013
-
+require(doMC)
+registerDoMC()
 require(SODDr)
 data(parms.Cobb2012)
 data(SOD.plots)
@@ -17,18 +18,49 @@ parms.Cobb2012$kernel.par1 <- 30
 initial.vec = as.vector(rbind(parms.Cobb2012$S.init, parms.Cobb2012$I.init))
 init <- matrix(data=initial.vec, nrow=nrow(locations), 
                ncol=2*nrow(parms.Cobb2012), byrow=TRUE)
+init <- init*50
+init2 <- init
+init2[190,2] <- init2[190,1]
+init2[190,1] <- 0
+init2[190,10] <- init2[190,9]
+init2[190,9] <- 0
+inits <- abind2(init,init2)
 
-pop <- SODModel(parms=parms.Cobb2012,locations=locations,times=time.steps,init=init,
-                   stochastic.d=FALSE)
+
+pop <- SODModel(parms=parms.Cobb2012,locations=locations,times=time.steps,init=inits,
+                   stochastic.d=TRUE, parallel=TRUE, K=50)
+aaply(pop[,,,2], c(1,3), mean)
 library(ggplot2)
+require(grid)
 library(plyr)
 pop.df <- melt(pop)
-pop.df.totals <- ddply(pop.df, c("Time", "Infected", "Species", "SizeClass"),
-                       summarise, TotPop=mean(Population))
-dynamic.plot <- ggplot(pop.df.totals, 
-                       aes(x=Time,y=TotPop, fill=Infected, color=SizeClass)) + 
-                  geom_area(position="stack", alpha=0.6) + facet_grid(~Species)
-dynamic.plot
+pop.df$Size <- factor(ifelse(pop.df$SizeClass %in% c(1,2), "Small", "Big"), 
+                  levels=c("Small", "Big"))
+df <- ddply(pop.df, .(Replicate, Time, Species, Size, Infected), summarize, 
+          MeanPop = mean(Population))
+plot <- ggplot(subset(df, Replicate==2)) +
+  geom_line(subset(df, Replicate==2), mapping=aes(x=Time, y=MeanPop, col=Species, lwd=Size, lty=Infected)) +
+  labs(x="Time (years)", y="Mean Stem Count/Plot") +
+  theme(text=element_text(family="Lato Light", size=14),
+        panel.grid.major.x=element_blank(),
+                panel.grid.minor.x=element_blank(),
+        panel.grid.minor.y=element_blank(),
+        panel.grid.major.y=element_line(colour="#ECECEC", size=0.5, linetype=1),
+        axis.ticks.y=element_blank(),
+        panel.background=element_blank(),
+        legend.title=element_blank(),
+        legend.position=c(0.75,0.6),
+        legend.key=element_rect(fill="white"),
+        legend.key.size=unit(1.5, "cm"),
+        legend.text=element_text(size=22),
+        axis.title=element_text(size=24),
+#        strip.text=element_text(size=16,vjust=-.25),
+        axis.text=element_text(color="black",size=13))
+plot
+ 
+
+
+##########
 init2 <- init
 
 init2[190,2] <- init2[190,1]
@@ -127,7 +159,7 @@ sPredicts <- llply(spGLMs, function(SPG) {
 inits <- laply(sPredicts, function(SPR) {
                 apply(SPR$p.y.predictive.sample,1, function(x) {
                         x <- sample(x, n.inits)
- #                       rpois(n.inits, x) 
+                        rpois(n.inits, x) 
                         })
                 })
 inits <- aperm(inits, c(3,1,2))
@@ -135,12 +167,10 @@ dimnames(inits) <- list(Location=1:(dim(inits)[1]),Class=names(spGLMs),
                         Sample=1:(dim(inits)[3]))
 summary(inits[,,4])
 
-inits <- inits/AREA
 
-pops3 <- SODModel(init=inits, parms=parms.Cobb2012,locations=locations,
-                times=time.steps)
+pops3 <- SODModel(init=inits[,,1:4], parms=parms.Cobb2012,locations=locations,
+                times=time.steps, stochastic.d=TRUE, parallel=TRUE)
 pops3.df <- melt(pops3)
-
 pops3.df$Size <- factor(ifelse(pops3.df$SizeClass %in% c(1,2), "Small", "Big"), 
                   levels=c("Small", "Big"))
 df <- ddply(pops3.df, .(Replicate, Time, Species, Size), summarize, 

@@ -1,5 +1,5 @@
 #' A dispersal function that only has 3 values, one for local, one for adjacent
-#' cells, and zero for others.  Requires distances between cells to = 1
+#' cells, and zero for others.  t1 and t2 are threshold distances.
 #' @export
 adjacent.dispersal <- function(distance, t1, t2, local, adjacent) {
   ifelse(distance < t1, local,

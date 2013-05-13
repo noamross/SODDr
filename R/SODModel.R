@@ -14,49 +14,55 @@
 # Check dimensions of parameters and initial conditions, if same do that number of runs
 # If different then multiply.
 
+# Add run time attribute
+
+# Use this for progress bar: http://stackoverflow.com/questions/10984556/is-there-way-to-track-progress-on-a-mclapply
+
+
+#TODO: Pre-calculate dispersal matrix for all runs (and other overhead, e.g.
+#turning parameters into a vector)
 
 #'Run the SOD model
-#'@param .parallel Run the simulation in parallel or not?
+#'@param parallel Run the simulation in parallel or not?
 #'@param ... arguments to be passed to SODModel
 #'@import foreach doRNG iterators abind plyr
 #'@export
-SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0, 
+SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0, K=50,
                      stochastic.e=NULL, stochastic.d=FALSE, 
-                     verbose=interactive(), .parallel=FALSE) {
+                     verbose=interactive(), parallel=FALSE) {
   
-  init=drop(abind(rep(list(init),reps), along=3))
-  if (length(dim(init)) == 3) {
+  init <- abind(rep(list(init),reps), along=3)
+  n.runs <- dim(init)[3]
 
-    n.runs <- dim(init)[3]
-    `%op%` <- if (.parallel) `%dorng%` else `%do%`
-    iter <- iapply(init, 3)
-    iterc <- icount(n.runs)
-    
-    if(verbose) {
-      message(dim(inits)[3], " Simulations of ",
-              tail(times, 1) - times[1] + 1, " time steps each")
-      z <- plyr:::txtTimerBar((tail(times, 1) - times[1] + 1)*n.runs)
+  if(verbose) {
+    message(n.runs, " Simulations of ",
+            tail(times, 1) - times[1] + 1, " time steps each")
+    if(!parallel) {
+        z <- plyr:::txtTimerBar((tail(times, 1) - times[1] + 1)*n.runs)
     }
-
-    model.out <- foreach(run=iterc, init=iter, .combine=abind2,
-                         .multicombine=TRUE) %op% {
-      stochastic.ev = eval(stochastic.e)
-      SODModelrun(parms, times, locations, init, lambda.ex, 
-                  stochastic.e=stochastic.ev, stochastic.d,
-                  verbose=ifelse(.parallel, FALSE, verbose), run) 
-    }
-
-    names(dimnames(model.out)) <- c("Time", "Location", "Class", "Replicate")
-    
-    if(verbose) {
-      setTxtProgressBar(z, n.runs*(tail(times, 1) - times[1] + 1))
-      close(z)
-    }
-
-  } else if (length(dim(init)) == 2) {
-    model.out <-SODModelrun(parms, times, locations, init, lambda.ex, 
-                            stochastic.e, stochastic.d, verbose=verbose) 
   }
+  
+  `%op%` <- if (parallel) `%dopar%` else `%do%`
+  iter <- iapply(init, 3)
+  iterc <- icount(n.runs)
+    
+  model.out <- foreach(run=iterc, init=iter, .combine=abind2,
+                         .multicombine=TRUE) %op% {
+    stochastic.ev = eval(stochastic.e)
+    SODModelrun(parms, times, locations, init, lambda.ex, K,
+                stochastic.e=stochastic.ev, stochastic.d,
+                verbose=(verbose & !parallel), run) 
+  }
+
+  drop(model.out)
+  dn <- c("Time", "Location", "Class", "Replicate")
+  for (i in 1:length(dim(model.out))) names(dimnames(model.out))[i] <- dn[i]  
+
+  if(verbose & !parallel) {
+    setTxtProgressBar(z, n.runs*(tail(times, 1) - times[1] + 1))
+    close(z)
+  }
+  
   class(model.out) <- c("SODD", "array")
   return(model.out)
 }
@@ -67,9 +73,8 @@ SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0,
 #'Runs the disease model.  Outputs a large matrix of population by species, 
 #'sizeclass, location
 #'@import plyr reshape2
-SODModelrun <- function(parms, times, locations, init, lambda.ex, stochastic.e, 
-                        stochastic.d, verbose, run=NULL) {
-  
+SODModelrun <- function(parms, times, locations, init, lambda.ex, K,
+                        stochastic.e, stochastic.d, verbose, run=NULL) {
   #Tests
   if(!all.equal(dim(init), c(nrow(locations), 2*nrow(parms)))) {
     stop("Dimensions of initial values and parameters do not match")
@@ -177,10 +182,10 @@ SODModelrun <- function(parms, times, locations, init, lambda.ex, stochastic.e,
         
         pop.inf <- inf.matrix %*% pop[time,location,]
         
-        E <- DensityDependence(pop[time,location,], compete)
+        E <- DensityDependence(pop[time,location,], compete, K)
         for(i in 1:n.species) {
           classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)
-          fec.mat[classindex[1],classindex] <- (E*recruit.vec)[classindex]
+          fec.mat[classindex[1],classindex] <- (pmax(E*recruit.vec,0))[classindex]
         }
         trans.mat <- tran.mat + fec.mat
         pop[time + 1,location,] <- trans.mat %*% pop.inf
@@ -198,8 +203,8 @@ SODModelrun <- function(parms, times, locations, init, lambda.ex, stochastic.e,
         
         pop.tran <- colSums(aaply(1:(n.classes*2),1, function(x) rmultinom(n=1, size=pop.inf[x], prob=tran.mat[,x])))
         
-        E <- DensityDependence(pop[time,location,], compete)
-        recruitment <- rpois(n=n.classes*2, lambda=E*pop.inf*recruit.vec)
+        E <- DensityDependence(pop[time,location,], compete, K)
+        recruitment <- rpois(n=n.classes*2, lambda=pmax(E*pop.inf*recruit.vec,0))  #TODO: Fix this so it doesn't just put a floor, but kills first-year recruits.  Also the pmax above.
         recruits <- rep(0, n.classes*2)
         for(i in 1:n.species) {
           classindex <- 1:(2*sizeclasses[i]) + (sum(sizeclasses[0:(i-1)])*2)

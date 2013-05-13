@@ -1,6 +1,6 @@
 
-DensityDependence.Rfun <- function(pop, compete) { 
-  1 - sum(pop*compete)
+DensityDependence.Rfun <- function(pop, compete, K) { 
+  (K - sum(pop*compete))/K
 }
 
 
