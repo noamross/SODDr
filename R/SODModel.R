@@ -106,7 +106,7 @@ SODModelrun <- function(parms, times, locations, init, lambda.ex, K,
   
   #Convert parameter data frame into list of parameters
   parms.obj <- MakeParmsList(parms)
-  
+  parms.obj$waifw <- parms.obj$waifw/K
   #Create dispersal matrices
   spread.matrices <- MakeDispMatrix(parms, locations, parms.obj)  
   
