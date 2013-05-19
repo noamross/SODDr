@@ -31,7 +31,7 @@ SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0, K=50,
                      stochastic.e=NULL, stochastic.d=FALSE, 
                      verbose=interactive(), parallel=FALSE) {
   
-  init <- abind(rep(list(init),reps), along=3)
+  init <- abind(rep(list(init),each=reps), along=3)
   n.runs <- dim(init)[3]
 
   if(verbose) {
