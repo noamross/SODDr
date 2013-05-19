@@ -1,6 +1,6 @@
 # package tests May 9, 2013
 require(doMC)
-registerDoMC()
+registerDoMC(cores=8)
 require(SODDr)
 data(parms.Cobb2012)
 data(SOD.plots)
@@ -27,8 +27,8 @@ init2[190,9] <- 0
 inits <- abind2(init,init2)
 
 
-pop <- SODModel(parms=parms.Cobb2012,locations=locs,times=time.steps,init=sp.med,
-                   stochastic.d=TRUE, parallel=FALSE, K=50)
+pop <- SODModel(parms=parms.Cobb2012,locations=locations,times=time.steps,init=inits[,,2],
+                   stochastic.d=TRUE, parallel=TRUE, K=50, reps=2)
 aaply(pop[,,,1], c(1,3), mean)
 library(ggplot2)
 require(grid)
@@ -38,8 +38,8 @@ pop.df$Size <- factor(ifelse(pop.df$SizeClass %in% c(1,2), "Small", "Big"),
                   levels=c("Small", "Big"))
 df <- ddply(pop.df, .(Replicate, Time, Species, Size, Infected), summarize, 
           MeanPop = mean(Population))
-plot <- ggplot(subset(df, Replicate==1)) +
-  geom_line(subset(df, Replicate==1), mapping=aes(x=Time, y=MeanPop, col=Species, lwd=Size, lty=Infected)) +
+plot <- ggplot(subset(df, Replicate==2)) +
+  geom_line(subset(df, Replicate==2), mapping=aes(x=Time, y=MeanPop, col=Species, lwd=Size, lty=Infected)) +
   labs(x="Time (years)", y="Mean Stem Count/Plot") +
   theme(text=element_text(family="Lato Light", size=14),
         panel.grid.major.x=element_blank(),
