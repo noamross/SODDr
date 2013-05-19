@@ -1,0 +1,48 @@
+Hex Model Test
+==============
+
+This is a test of the current SOD model on a hexagonal grid.
+
+First, I the data from the plot network, which is included in the package. This
+data is summarized and simplified from the original data. See `?SOD.plots` for 
+details and documentation.  I grab the initial conditions from one site.
+
+```{r lloaddata}
+library(SODDr, quietly=TRUE)
+data(SOD.plots)
+sd <- subset(SOD.plots, Year==2002 & Subsite=="JLSP")
+```
+
+Next I summarize this data into counts per plot by species, sizeclass, and
+infection status, assuming only Tanoak (`LIDE`) and Bay Laurel (`UMCA`) are
+infected, and group all other trees as `OTH`.  Only LIDE has size classes
+
+```{r processdata}
+library(plyr)
+# Aggregate non-sporulating species and assume no infection in these
+
+sporulators <- c("UMCA", "LIDE")
+sd$Species <- factor(sd$Species, levels = c(levels(sd$Species), "OTH"))
+sd$Species[which(!(sd$Species %in% sporulators))] <- "OTH"
+sd$Infected[which(!(sd$Species %in% sporulators))] <- "S"
+sd <- droplevels(sd)
+
+# Assign size classes to only the LIDE trees, giving the rest SizeClass=1
+
+LIDE.breaks <- c(0,2,10,30, Inf)
+sd$SizeClass <- factor(1, levels=as.character(1:4))
+sd$SizeClass[which(sd$Species=="LIDE")] <- 
+  cut(sd$DBH[which(sd$Species=="LIDE")], 
+      breaks=LIDE.breaks, labels=as.character(1:4))
+
+# Summarize the data by plot
+plot.sum <- ddply(sd, c("Plot", "Species", "SizeClass", "Infected"), 
+                  summarize, Count=length(Species), .drop=FALSE)
+
+# Eliminate unneccessary classes
+plot.sum <- subset(plot.sum, !(Species !="LIDE" & SizeClass !="1"))
+plot.sum <- merge(unique(sd[,c("Site", "Subsite", "Plot", "Easting", 
+                               "Northing")]), plot.sum)
+
+```
+

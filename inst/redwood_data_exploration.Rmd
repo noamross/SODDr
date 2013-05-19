@@ -1,0 +1,125 @@
+Exploring the Redwood Plot Network Data Set
+========================================================
+
+I load the raw data
+
+```{r}
+rawdata <- read.csv("data/redwood_plot_network.csv", comment.char="#")
+head(rawdata)
+str(rawdata)
+```
+First, I want to visualize the site locations, so let's make a table of of unique plot locations
+
+```{r uniqplots}
+require(extrafont)
+require(plyr)
+require(ggmap)
+library(rgdal)
+locations <- unique(subset(rawdata, select=c(Site, easting, northing)))
+SP <- SpatialPoints(cbind(locations$easting, locations$northing), proj4string=CRS("+proj=utm +zone=10"))
+locations <- cbind(locations, spTransform(SP, CRS("+proj=longlat")))
+locations <- rename(locations, c("coords.x1"="lon", "coords.x2"="lat"))
+bb <- bbox(cbind(locations$lon,locations$lat))
+background <- get_map(rowMeans(bb), zoom=8, maptype="terrain")
+ggmap(background, extent="panel", maprange=TRUE) + 
+  geom_point(aes(x=lon,y=lat, fill=Site), data = locations, size=4, color="black", shape=21) +
+  scale_x_continuous(limits=bb[c(1,3)]) + 
+  scale_y_continuous(limits=bb[c(2,4)]) + 
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+       axis.text.y=element_blank(),axis.ticks=element_blank(),
+       axis.title.x=element_blank(),
+       axis.title.y=element_blank(),
+      text=element_text(family="Lato Light", size=14),
+      legend.position="none")
+ggsave("~/Dropbox/openquals/sitelocations.png", width=4.5, height=7.2)
+
+```
+Now let's just look at one location
+
+```{r onelocation}
+require(grid)
+SDC <- subset(locations, Site=="Second Growth")
+bb <- bbox(cbind(SDC$lon,SDC$lat))
+background <- get_map(rowMeans(bb),zoom=15, maptype="hybrid", source="google")
+
+
+attr(background, "bb")[1:4] <- coordinates(spTransform(SpatialPoints(matrix(as.numeric(attributes(background)$bb[c(2,1,4,3)]),2,2,TRUE), proj4string=CRS("+proj=longlat")), CRS("+proj=utm +zone=10")))[c(1,3,2,4)]
+SDC$easting <- SDC$easting - as.numeric(attr(background, "bb")[1]) - 500
+SDC$northing <- SDC$northing - as.numeric(attr(background, "bb")[2]) - 500
+attr(background, "bb")[1:4] <- c(-500,-500,attr(background, "bb")[3] - attr(background, "bb")[1] - 500, attr(background, "bb")[4] - attr(background, "bb")[2] - 500)
+#ggmap(background, extent="panel", maprange=TRUE) + 
+xmin <- as.numeric(attr(background, "bb")[1])
+xmax <- as.numeric(attr(background, "bb")[3])
+ymin <- as.numeric(attr(background, "bb")[2])
+ymax <- as.numeric(attr(background, "bb")[4])
+plot <- ggplot(aes(x=easting,y=northing), data=SDC) +
+  inset_raster(background,xmin,xmax,ymin,ymax) + 
+  scale_x_continuous(limits=c(0,1500), expand=c(0,0), name="Distance (m)") + 
+  scale_y_continuous(limits=c(0,1500), expand=c(0,0), name="Distance (m)") +
+  coord_fixed() +
+  theme(axis.text.y=element_blank(),axis.ticks.y=element_blank(),
+        axis.line.y=element_blank(),
+        axis.title.y=element_blank(),
+        text=element_text(family="Lato Light", size=18))
+
+radius <- 12.5
+for (i in 1:nrow(SDC)) {
+     plot <- plot + annotation_custom(grob=circleGrob(r=unit(0.5,"npc"), gp=gpar(alpha=1, fill="orange")), xmin=SDC$easting[i] - radius, xmax=SDC$easting[i] + radius,ymin=SDC$northing[i] - radius,ymax= SDC$northing[i] + radius)
+     }
+
+plot
+ggsave("~/Dropbox/openquals/cruzsite.png", width=6, height=6, dpi=300)
+```
+
+Let's get a sense of the spatial scale.  All the plots are 12.5m circles.  How far are they apart at each site?  Let's calculate the minimum distance
+
+```{r distances} 
+dlply(locations, "Site", function(x) spDists(cbind(x$lon,x$lat, longlat=TRUE))*1000)
+```
+
+Not sure what's going on here.  It might have to do with the precision of the coordinates?
+
+OK, on to species composition
+
+```{r species-comp}
+# Calculate count per plot of each species
+sp.densities <- ddply(subset(rawdata,survey==2002), c("Site", "Species"), function(x) nrow(x)/length(unique(paste(x$easting, x$northing))))
+ggplot(sp.densities, aes(x=Species, y=V1, fill=Species)) + geom_bar(stat="identity") + facet_wrap(~Site) + coord_flip()
+# Let's aggregate the less important species
+sp.densities2 <- ddply(sp.densities, "Site", function(x) rbind(subset(x, Species %in% c("LIDE", "SESE", "UMCA")), data.frame(Site=x$Site[1], Species="Other", V1=sum(x$V1[which(!x$Species %in% c("LIDE", "SESE", "UMCA"))]))))
+ggplot(sp.densities2, aes(x=Species, y=V1, fill=Species)) + geom_bar(stat="identity") + facet_wrap(~Site) + coord_flip()
+```
+
+OK, how about the proportion of tanoak trees diseased over time?
+
+```{r diseased}
+sp.inf <- ddply(subset(rawdata, Species=="LIDE"), c("Site","survey"), summarize, Infected=sum(infection)/length(infection), Dead=sum(mortality)/length(mortality))
+require(reshape2)
+sp.inf <- melt(sp.inf, c("Site","survey"))
+ggplot(sp.inf, aes(x=survey, y=value, col=variable)) + geom_line() + facet_wrap(~Site)
+```
+
+The same with Bay:
+
+```{r diseased}
+sp.inf <- ddply(subset(rawdata, Species=="UMCA"), c("Site","survey"), summarize, Infected=sum(infection)/length(infection), Dead=sum(mortality)/length(mortality))
+require(reshape2)
+sp.inf <- melt(sp.inf, c("Site","survey"))
+ggplot(sp.inf, aes(x=survey, y=value, col=variable)) + geom_line() + facet_wrap(~Site)
+```
+
+Let's make this a bit easier by setting indices of plot and tree:
+
+```{r}
+rawdata <- ddply(rawdata, "Site", transform, Plot=match(paste(easting, northing), unique(paste(easting,northing))))
+rawdata <- ddply(rawdata, c("Site", "Plot"),  transform, tree=match(DBH, unique(DBH)))
+```
+
+OK, let's calculate stand density index by plot and site:
+
+```{r}
+SDI <- ddply(rawdata, c("Site","Plot"), summarize, BasalArea=sum(((DBH/2)^2)/10000)*20)
+ggplot(SDI, aes(x=BasalArea, fill=Site)) + geom_density(alpha=0.5)
+
+```
+

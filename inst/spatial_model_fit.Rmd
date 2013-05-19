@@ -1,0 +1,306 @@
+% Sudden Oak Death Dynamics Progress: Fitting Model for Initial Conditions
+% Noam Ross
+% 13-05-07 09:15:31
+
+My most recent problem has been simulating initial conditions for my [Sudden Oak
+Death](http://www.noamross.net/blog/2012/11/16/sod-dynamics-1.html) model. The
+model simulates the spread of SOD and forest dynamics on a lattice where each
+cell has a discrete population of trees divided into site, species, and
+infection categories. However, the plot data does not provide a complete census
+of trees, but rather census of trees in plots scattered around a site, like so:
+
+```{r areamap, echo=FALSE, fig.cap="Plot size and location overlain on a hexagonal grid at the "SDC" site at Jack London State Park. Plot areas (and grid cell areas) are 500 m^2^"}
+library(ggplot2)
+library(plyr)
+library(reshape2)
+library(grid)
+library(SODDr)
+library(hexbin)
+library(pander)
+library(spBayes)
+library(automap)
+# Set some essential variables
+SUBSITE <- "SDC"  # Which subsite of the plot data 
+AREA <- 500
+
+# Load the data and merge subsites names
+data(SOD.plots)
+### Data Conversion ###
+
+# Get initial census of live trees at the chosen subsite
+census.2002 <- subset(SOD.plots, Year==2002 & Mortality==0 & Subsite==SUBSITE)
+
+# Aggregate non-sporulating species and assume no infection in these
+sporulators <- c("UMCA", "LIDE")
+census.2002$Species <- factor(census.2002$Species, 
+                              levels = c(levels(census.2002$Species), "OTH"))
+census.2002$Species[which(!(census.2002$Species %in% sporulators))] <- "OTH"
+census.2002$Infected[which(!(census.2002$Species %in% sporulators))] <- "S"
+census.2002 <- droplevels(census.2002)
+
+# Assign size classes to only the LIDE trees, giving the rest SizeClass=1
+
+LIDE.breaks <- c(0,2,10,30, Inf)
+census.2002$SizeClass <- factor(1, levels=as.character(1:4))
+census.2002$SizeClass[which(census.2002$Species=="LIDE")] <- 
+  cut(census.2002$DBH[which(census.2002$Species=="LIDE")], 
+      breaks=LIDE.breaks, labels=as.character(1:4))
+
+# Summarize the data by plot
+plot.sum <- ddply(census.2002, c("Plot", "Species", "SizeClass", "Infected"), 
+                  summarize, Count=length(Species), .drop=FALSE)
+
+# Eliminate unneccessary classes
+plot.sum <- subset(plot.sum, !(Species !="LIDE" & SizeClass !="1"))
+
+#Add the Site data back in
+plot.sum <- merge(unique(census.2002[,c("Site", "Subsite", "Plot",
+                                        "Easting", "Northing")]), plot.sum)
+
+hex.pts <- hex.grid(plot.sum, AREA)
+hex.pts.df <- data.frame(Location=1:nrow(hex.pts), hex.pts)
+names(hex.pts.df) <- c("Location","Easting", "Northing")
+PLOTSPECIES <-"UMCA"
+PLOTSIZECLASS <- "1"
+PLOTINFECT <- "I"
+radius <- sqrt(AREA/pi)
+plots.df <- subset(plot.sum, Species==PLOTSPECIES & SizeClass==PLOTSIZECLASS &
+                     Infected==PLOTINFECT)
+
+plot <- ggplot(aes(x=Easting, y=Northing), data=hex.pts.df) + 
+  geom_hex(stat="identity", col="white", fill="grey", alpha=0.5) + 
+  scale_x_continuous(limits=c(min(plots.df$Easting) - radius, 
+                              max(plots.df$Easting) + radius),
+                     name="UTM Easting (m)") +
+  scale_y_continuous(limits=c(min(plots.df$Northing) - radius, 
+                              max(plots.df$Northing) + radius),
+                     name="UTM Northing (m)") +
+  coord_equal() +
+  theme(panel.grid=element_blank(), panel.background=element_blank())
+
+for (i in 1:nrow(plots.df)) {
+     plot <- plot + annotation_custom(grob=circleGrob(r=unit(0.5,"npc"), gp=gpar(alpha=0.5,
+                                                              fill="black", col="blue")),
+                                      xmin=plots.df$Easting[i] - radius, 
+                                      xmax=plots.df$Easting[i] + radius,
+                                      ymin=plots.df$Northing[i] - radius,
+                                      ymax=plots.df$Northing[i] + radius)
+     }
+
+plot
+```
+
+
+The plot distribution here is fairly typical of the sampling scheme, which is
+sort of a random walk with 100 m jumps. Plot count is typical, too:
+
+```{r reults='asis'}
+pander(ddply(SOD.plots, "Subsite", summarize, Plots=length(unique(Plot)), 
+             .drop=TRUE),
+       caption="Number of Plots by Site in the SOD Monitoring Network")
+```
+
+As such, I need to model the distribution of trees across the grid via some form
+of spatial interpolation. The uncertainty in this interpolation is another form
+of error that can enter the SOD spread simulations. Given the interest of the
+forest service in using the model for management purposes, I've been trying to
+characterize this distribution.
+
+Currently, I am modeling counts using the `spBayes` package in R, which fits
+general linear models (GLMs) with spatially correlated variables and errors,
+using the form
+
+I don't have co-variates other than species, so I just regress using the $x$ and
+$y$ coordinates a predictors, looking for spatial trends. In general, because of
+the small sample size, the most parsimonious model (measured via Deviance
+Information Criterion) is constant across space, but has spatial errors. This
+gives me a mean population surface like this:
+
+`spBayes` fits these models using MCMC, so I am provided with a matrix giving a
+sample of posterior parameter models. Here is the output of mean tree count 
+per plot, when fitting to the "SDC" site data:
+
+```{r densities, fig.cap="Posterior Densities of Tree Count per Plot, by Tree Class"}
+plot.glms <- dlply(plot.sum, .(Species, SizeClass, Infected), function(x) {
+                     glm(Count ~ 1, family="poisson", data=x)
+                    })
+
+nclass <- length(plot.glms)
+nplots <- length(unique(plot.sum$Plot))
+n.batch <- 1500
+batch.length <- 100
+n.samples <- n.batch*batch.length
+n.inits <- 1000
+burn.in <- ceiling(0.9*n.samples)
+sub.samps <- (burn.in+1):n.samples
+
+spGLMs <- llply(plot.glms, function(GLM) {
+                  spGLM(Count~1, family="poisson", data=GLM$data,
+                  coords=as.matrix(GLM$data[,c("Easting", "Northing")]),
+        starting=list("beta"=coef(GLM),"phi"=0.001,"sigma.sq"=vcov(GLM), "w"=0),
+        priors=list("beta.Flat", "phi.Unif"=c(0.000001, 0.03), "sigma.sq.IG"=c(2, 1)),
+        tuning=list("beta"=0.1, "phi"=2, "sigma.sq"=0.5, "w"=0.5),
+        amcmc=list("n.batch"=n.batch, "batch.length"=batch.length, "accept.rate"=0.43),
+        cov.model="exponential", verbose=TRUE)
+                })
+
+class.means <- ldply(spGLMs, function(SPG) {
+                       data.frame(MeanLogCount=
+                                    SPG$p.beta.theta.samples[sub.samps,2])
+                       })
+names(class.means)[1] <- "Class"
+parmplot <- ggplot(subset(class.means, Class!="OTH.1.I"), 
+              aes(x=MeanLogCount, fill=Class)) +
+  geom_density(alpha=0.8, col=NA) +
+  facet_wrap(~Class, scales="free") +
+  expand_limits(y=0) + 
+  scale_x_continuous(name="Log of Mean Number of Trees per Cell") + 
+  scale_y_continuous(name="Posterior Density") + 
+  theme(panel.grid=element_blank(), panel.background=element_blank(),
+        axis.ticks.y=element_blank(), axis.text.y=element_blank(),
+        panel.border=element_rect(fill=NA, colour="grey"),
+        legend.position="none")
+parmplot
+```
+
+I use these model results to generate random initial conditions by drawing a
+posterior sample, predicting mean counts for each tree class, across the grid,
+and then drawing counts from a Poisson distribution.  Here is what the mean
+and standard deviation of random draws look like across the grid:
+
+```{r meanplot, echo=FALSE}
+sPredicts <- llply(spGLMs, function(SPG) {
+                     spPredict(SPG, pred.coords=hex.pts, 
+                               pred.covars=matrix(1, nrow(hex.pts)),
+                               start=burn.in, end=n.samples,
+                               thin=floor((n.samples-burn.in)/n.inits),
+                               verbose=FALSE)
+                  })
+
+inits <- laply(sPredicts, function(SPR) {
+                apply(SPR$p.y.predictive.sample,1, function(x) {
+                        x <- sample(x, n.inits)
+                        rpois(n.inits, x) })
+                })
+inits <- aperm(inits, c(3,1,2))
+dimnames(inits) <- list(Location=1:(dim(inits)[1]),Class=names(spGLMs),
+                        Sample=1:(dim(inits)[3]))
+inits.df <- adply(inits, c(1,2), function(x) data.frame(Mean=mean(x), SD=var(sqrt(x))))
+inits.df <- merge(inits.df, hex.pts.df)
+lims <- c(0, round_any(max(subset(inits.df, Class=="UMCA.1.S")$Mean),5,ceiling))
+classdata <- subset(inits.df, Class=="UMCA.1.S")
+meanplot <- ggplot(data=classdata, mapping=aes(x=Easting, y=Northing)) +
+  geom_hex(data=classdata, stat="identity",
+           mapping=aes(x=Easting, y=Northing, fill=Mean, col=Mean)) +
+  scale_x_continuous(limits=c(min(plots.df$Easting) - radius, 
+                              max(plots.df$Easting) + radius),
+                     name="UTM Easting (m)") +
+  scale_y_continuous(limits=c(min(plots.df$Northing) - radius, 
+                              max(plots.df$Northing) + radius),
+                     name="UTM Northing (m)") +
+  scale_fill_gradientn(colours=c("white","blue"), space="rgb") + #, limits=lims) +
+  scale_color_gradientn(colours=c("white","blue"), space="rgb") + #, limits=lims) +
+  coord_equal() +
+  theme(panel.grid=element_blank(), panel.background=element_blank())
+for (i in 1:nrow(plots.df)) {
+     meanplot <- meanplot + annotation_custom(grob=circleGrob(r=unit(0.5,"npc"), 
+                                                      gp=gpar(alpha=0.8,
+                                                              fill="black")),
+                                      xmin=plots.df$Easting[i] - radius, 
+                                      xmax=plots.df$Easting[i] + radius,
+                                      ymin=plots.df$Northing[i] - radius,
+                                      ymax=plots.df$Northing[i] + radius)
+     }
+meanplot <- meanplot + geom_text(data=plots.df, 
+                         mapping=aes(x=Easting, y=Northing, label=Count), 
+                         col="white", cex=4)
+meanplot
+```
+
+```{r sdplot, echo=FALSE}
+sdplot <- ggplot(data=classdata, mapping=aes(x=Easting, y=Northing)) +
+  geom_hex(data=classdata, stat="identity",
+           mapping=aes(x=Easting, y=Northing, fill=SD, col=SD)) +
+  scale_x_continuous(limits=c(min(plots.df$Easting) - radius, 
+                              max(plots.df$Easting) + radius),
+                     name="UTM Easting (m)") +
+  scale_y_continuous(limits=c(min(plots.df$Northing) - radius, 
+                              max(plots.df$Northing) + radius),
+                     name="UTM Northing (m)") +
+  scale_fill_gradientn(colours=c("white","blue"), space="rgb",
+                       name="Variance of Square Root Count Predictions") +
+  scale_color_gradientn(colours=c("white","blue"), space="rgb",
+                        name="Variance of Square Root Count Predictions") +
+  coord_equal() +
+  theme(panel.grid=element_blank(), panel.background=element_blank())
+for (i in 1:nrow(plots.df)) {
+     sdplot <- sdplot + annotation_custom(grob=circleGrob(r=unit(0.5,"npc"), 
+                                                      gp=gpar(alpha=0.4,
+                                                              fill="black")),
+                                      xmin=plots.df$Easting[i] - radius, 
+                                      xmax=plots.df$Easting[i] + radius,
+                                      ymin=plots.df$Northing[i] - radius,
+                                      ymax=plots.df$Northing[i] + radius)
+     }
+sdplot
+```
+
+
+
+
+A few important observations:
+
+1.  The current model doesn't seem to have varying uncertainty across the
+    landscape. I would expect the uncertainty to be higher in the southeast
+    quadrant, where plot density is low, but this doesn't happen. This
+    suggests that I might need a better kriging technique (maybe I should sit in
+    on [Robert Hijmans's class](). However, given the high variance overall, I'm
+    not sure this would make a big difference for my goal right now.
+
+2.  The sample-to-sample variability is pretty high. However, when you sum up
+    the total population size of each species across each random draw, the
+    variability is lower:
+    
+    
+```{r}
+comp <- adply(inits, 2, function(x) {
+                data.frame(mean.plot.var=mean(aaply(x, 1, sd))/mean(x),
+                           total.var=sd(aaply(x, 2, mean)))/mean(x)
+                })
+```
+
+    This means that simulating across these models might tell us something about
+    how much the spatial distribution of trees at the sites matter. Each draw
+    may have a very different spatial configuration of trees, but since the
+    population sizes and proportions are similar, we can see how the model has
+    different
+
+
+
+3.  The most important thing the model does not capture, in my view, is possible
+    correlations among the tree species and size classes themselves. Right now
+    each class (species × size × infection) is modeled independently, though
+    there are obvious reasons I might expect correlation between these.
+    I'm still hunting for a way to do this with some sort of multivariate
+    response GLM. `spBayes` has a `spMvGLM` function, but I have yet to decipher
+    how to use it or understand the underlying model.
+
+
+```{r}
+plot(exp(spGLMs$UMCA.1.S$tuning[3,]))
+spatial.error <- melt((spGLMs[["UMCA.1.S"]]$p.w.samples[,sub.samps]), 
+                      varnames=c("Point","Sample"),
+                      value.name="W")
+parmplot <- ggplot(spatial.error, aes(x=W, fill=Point)) +
+  geom_density(alpha=0.8, col=NA) +
+  facet_wrap(~Point) + # , scales="free_y") +
+  expand_limits(y=0) + 
+  scale_x_continuous(name="Spatial Error") + 
+  scale_y_continuous(name="Posterior Density") + 
+  theme(panel.grid=element_blank(), panel.background=element_blank(),
+        axis.ticks.y=element_blank(), axis.text.y=element_blank(),
+        panel.border=element_rect(fill=NA, colour="grey"),
+        legend.position="none")
+parmplot
+```
+
