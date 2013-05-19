@@ -354,7 +354,7 @@ save.image(file="cmpruns.Rdata")
 
 load("cmpruns.Rdata")
 lapply(packs,function(x){library(x,character.only=TRUE)}) 
-
+W
 library(multicore)
 library(doMC)
 library(foreach)
