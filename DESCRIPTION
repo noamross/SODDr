@@ -27,3 +27,4 @@ Collate:
     'SODDr-package.R'
     'plot.sums.R'
     'melt.SODD.R'
+    'restart.mcmc.R'

@@ -24,7 +24,7 @@ My model modifies the original in a few ways.  First, it's designed to be much m
 First, I load a CSV file of parameters
 
 ```{r loadparms}
-data(parms.Cobb2012.norm)
+data(parms.Cobb2012_raw)
 treeparms.df <- parms.Cobb2012.norm
 print(treeparms.df)
 ```

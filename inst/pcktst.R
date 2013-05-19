@@ -27,9 +27,9 @@ init2[190,9] <- 0
 inits <- abind2(init,init2)
 
 
-pop <- SODModel(parms=parms.Cobb2012,locations=locations,times=time.steps,init=inits,
-                   stochastic.d=TRUE, parallel=TRUE, K=50)
-aaply(pop[,,,2], c(1,3), mean)
+pop <- SODModel(parms=parms.Cobb2012,locations=locs,times=time.steps,init=sp.med,
+                   stochastic.d=TRUE, parallel=FALSE, K=50)
+aaply(pop[,,,1], c(1,3), mean)
 library(ggplot2)
 require(grid)
 library(plyr)
@@ -38,8 +38,8 @@ pop.df$Size <- factor(ifelse(pop.df$SizeClass %in% c(1,2), "Small", "Big"),
                   levels=c("Small", "Big"))
 df <- ddply(pop.df, .(Replicate, Time, Species, Size, Infected), summarize, 
           MeanPop = mean(Population))
-plot <- ggplot(subset(df, Replicate==2)) +
-  geom_line(subset(df, Replicate==2), mapping=aes(x=Time, y=MeanPop, col=Species, lwd=Size, lty=Infected)) +
+plot <- ggplot(subset(df, Replicate==1)) +
+  geom_line(subset(df, Replicate==1), mapping=aes(x=Time, y=MeanPop, col=Species, lwd=Size, lty=Infected)) +
   labs(x="Time (years)", y="Mean Stem Count/Plot") +
   theme(text=element_text(family="Lato Light", size=14),
         panel.grid.major.x=element_blank(),
@@ -61,50 +61,6 @@ plot
 
 
 ##########
-init2 <- init
-
-init2[190,2] <- init2[190,1]
-init2[190,1] <- 0
-init2[190,10] <- init2[190,9]
-init2[190,9] <- 0
-inits <- abind2(init,init2)
-
-pops2 <- SODModel(init=init2, reps=10, parms=parms.Cobb2012,locations=locations,
-                times=time.steps, verbose=TRUE)
-pops2.df <- melt(pops2)
-
-pops2.df$Size <- factor(ifelse(pops2.df$SizeClass %in% c(1,2), "Small", "Big"), 
-                  levels=c("Small", "Big"))
-df <- ddply(pops2.df, .(Replicate, Time, Species, Size), summarize, 
-            TotPop = sum(Population))
-df <- ddply(df, .(Replicate, Time), summarize, 
-            Species=Species, Size=Size, PctPop=TotPop/sum(TotPop))
-df.means <- ddply(df, .(Time, Species, Size), summarize, MeanPop=mean(PctPop))
-df$Run=factor(paste0(df$Replicate,".",df$Size))
-
-plot <- ggplot(subset(df, Species=="LIDE")) +
-  geom_line(data=subset(df, Species=="LIDE"), 
-            mapping=aes(x=Time, y=PctPop, col=Size, group=Run), alpha=0.2) +
-  geom_line(data=subset(df.means, Species=="LIDE"), 
-            mapping=aes(x=Time, y=MeanPop, col=Size),  lwd=1) +
-  labs(x="Time (years)", y="Tanoak Population") +
-  scale_color_discrete(labels=c("Small Tanoak", "Large Tanoak")) +
-  theme(text=element_text(family="Lato Light", size=14),
-        panel.grid.major.x=element_blank(),
-                panel.grid.minor.x=element_blank(),
-        panel.grid.minor.y=element_blank(),
-        panel.grid.major.y=element_line(colour="#ECECEC", size=0.5, linetype=1),
-        axis.ticks.y=element_blank(),
-        panel.background=element_blank(),
-        legend.title=element_blank(),
-        legend.position=c(0.75,0.6),
-        legend.key=element_rect(fill="white"),
-        legend.key.size=unit(1.5, "cm"),
-        legend.text=element_text(size=22),
-        axis.title=element_text(size=24),
-#        strip.text=element_text(size=16,vjust=-.25),
-        axis.text=element_text(color="black",size=13))
-plot
 
 require(spBayes)
 plot.glms <- dlply(plot.sum, .(Species, SizeClass, Infected), function(x) {
@@ -132,7 +88,7 @@ spGLMs <- llply(plot.glms, function(GLM) {
 
 class.means <- ldply(spGLMs, function(SPG) {
                        data.frame(MeanLogCount=
-                                    SPG$p.beta.theta.samples[sub.samps,1])
+                                    SPG$p.beta.theta.samples[sub.samps,2])
                        })
 names(class.means)[1] <- "Class"
 parmplot <- ggplot(subset(class.means, Class!="OTH.1.I"), 
@@ -156,37 +112,30 @@ sPredicts <- llply(spGLMs, function(SPG) {
                                verbose=FALSE)
                   })
 
-inits <- laply(sPredicts, function(SPR) {
+spinits <- laply(sPredicts, function(SPR) {
                 apply(SPR$p.y.predictive.sample,1, function(x) {
                         x <- sample(x, n.inits)
                         rpois(n.inits, x) 
                         })
                 })
-inits <- aperm(inits, c(3,1,2))
-dimnames(inits) <- list(Location=1:(dim(inits)[1]),Class=names(spGLMs),
-                        Sample=1:(dim(inits)[3]))
-summary(inits[,,4])
+spinits <- aperm(spinits, c(3,1,2))
+dimnames(spinits) <- list(Location=1:(dim(spinits)[1]),Class=names(spGLMs),
+                        Sample=1:(dim(spinits)[3]))
+summary(spinits[,,1])
 
 
-pops3 <- SODModel(init=inits[,,1:4], parms=parms.Cobb2012,locations=locations,
-                times=time.steps, stochastic.d=TRUE, parallel=TRUE)
-pops3.df <- melt(pops3)
-pops3.df$Size <- factor(ifelse(pops3.df$SizeClass %in% c(1,2), "Small", "Big"), 
+sppops <- SODModel(init=spinits[,,1], parms=parms.Cobb2012,locations=locations,
+                times=time.steps, stochastic.d=FALSE, parallel=FALSE)
+
+df2 <- melt(sppops)
+df2$Replicate <- 1
+df2$Size <- factor(ifelse(df2$SizeClass %in% c(1,2), "Small", "Big"), 
                   levels=c("Small", "Big"))
-df <- ddply(pops3.df, .(Replicate, Time, Species, Size), summarize, 
-            TotPop = sum(Population))
-df <- ddply(df, .(Replicate, Time), summarize, 
-            Species=Species, Size=Size, PctPop=TotPop/sum(TotPop))
-df.means <- ddply(df, .(Time, Species, Size), summarize, MeanPop=mean(PctPop))
-df$Run=factor(paste0(df$Replicate,".",df$Size))
-
-plot <- ggplot(subset(df, Species=="LIDE")) +
-  geom_line(data=subset(df, Species=="LIDE"), 
-            mapping=aes(x=Time, y=PctPop, col=Size, group=Run), alpha=0.2) +
-  geom_line(data=subset(df.means, Species=="LIDE"), 
-            mapping=aes(x=Time, y=MeanPop, col=Size),  lwd=1) +
-  labs(x="Time (years)", y="Tanoak Population") +
-  scale_color_discrete(labels=c("Small Tanoak", "Large Tanoak")) +
+df2 <- ddply(df2, .(Replicate, Time, Species, Size, Infected), summarize, 
+          MeanPop = mean(Population))
+plot <- ggplot(subset(df2, Replicate==1)) +
+  geom_line(subset(df2, Replicate==1), mapping=aes(x=Time, y=MeanPop, col=Species, lwd=Size, lty=Infected)) +
+  labs(x="Time (years)", y="Mean Stem Count/Plot") +
   theme(text=element_text(family="Lato Light", size=14),
         panel.grid.major.x=element_blank(),
                 panel.grid.minor.x=element_blank(),
@@ -203,3 +152,4 @@ plot <- ggplot(subset(df, Species=="LIDE")) +
 #        strip.text=element_text(size=16,vjust=-.25),
         axis.text=element_text(color="black",size=13))
 plot
+ 

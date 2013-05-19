@@ -54,9 +54,8 @@ SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0, K=50,
                 verbose=(verbose & !parallel), run) 
   }
 
-  drop(model.out)
-  dn <- c("Time", "Location", "Class", "Replicate")
-  for (i in 1:length(dim(model.out))) names(dimnames(model.out))[i] <- dn[i]  
+  if (length(dim(model.out))==3) model.out <- abind(model.out, along=4)
+  names(dimnames(model.out)) <- c("Time", "Location", "Class", "Replicate")
 
   if(verbose & !parallel) {
     setTxtProgressBar(z, n.runs*(tail(times, 1) - times[1] + 1))

@@ -7,3 +7,4 @@
 *.prof
 *.out
 data/redwood_plot_network.csv
+*.swp

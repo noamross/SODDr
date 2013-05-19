@@ -1,8 +1,9 @@
 # This script takes the data from parms.Cobb_2012_raw and calculates
 # the competitive coefficients
 
+require(utils)
 parms.Cobb2012 <- utils::read.csv("parms.Cobb2012_raw.csv",
-                                  stringsAsFactors=FALSE)
+                                  stringsAsFactors=FALSE, sep=";")
 parms.Cobb2012 <- within(parms.Cobb2012, {
 # Calculate the relative space requirements of tanoak size classes
 # based on initial conditions
