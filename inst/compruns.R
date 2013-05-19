@@ -355,5 +355,10 @@ save.image(file="cmpruns.Rdata")
 load("cmpruns.Rdata")
 lapply(packs,function(x){library(x,character.only=TRUE)}) 
 
+library(multicore)
+library(doMC)
+library(foreach)
+registerDoMC(cores=7)
+
 pop.hexsch <- SODModel(parms=parms.hex,locations=locations.hex,times=time.steps,
-                       init=init.hex, stochastic.d=TRUE, reps=50, K=50)
+                       init=init.hex, stochastic.d=TRUE, reps=50, K=50, parallel=TRUE)
