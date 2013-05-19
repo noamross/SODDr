@@ -29,6 +29,7 @@ locs <- hex.grid(plot.sum, AREA)
 
 ## Record essential variables
 n.class <- length(class.names)
+n.class2 <- sum(!zero.classes)
 n.loc <- nrow(locs)
 n.plot <- length(unique(plot.sum$Plot))
 
@@ -37,7 +38,7 @@ plot.glms <- dlply(plot.sum2, .(Species, SizeClass, Infected), function(x) {
                      glm(Count ~ 1, family="poisson", data=x)
                     })
 
-n.class2 <- length(plot.glms)
+
 
 
 ## Set MCMC parameters

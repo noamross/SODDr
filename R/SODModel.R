@@ -27,7 +27,7 @@
 #'@param ... arguments to be passed to SODModel
 #'@import foreach doRNG iterators abind plyr
 #'@export
-SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0, K=50,
+SODModel <- function(parms, times, locations, init, reps=1, lambda.ex = 0, K=1,
                      stochastic.e=NULL, stochastic.d=FALSE, 
                      verbose=interactive(), parallel=FALSE) {
   
