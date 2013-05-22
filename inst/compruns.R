@@ -18,7 +18,7 @@ init.Cobb2012[190,1] <- 0
 init.Cobb2012[190,10] <- init.Cobb2012[190,9]
 init.Cobb2012[190,9] <- 0
 
-pop <- SODModel(parms=parms.Cobb2012,locations=locations,times=time.steps,
+pop <- SODModel(parms=parms.Cobb2012,locs=locations,times=time.steps,
                 init=init.Cobb2012)
 Cobb.2012.df <- merge(data.frame(Location=rownames(locations),locations),
                       melt(pop))
@@ -97,7 +97,7 @@ parms.hex <- parms.Cobb2012
 parms.hex$kernel.par1 <- 5
 parms.hex$kernel.par2 <- 30
 
-pop.hex <- SODModel(parms=parms.hex,locations=locations.hex,times=time.steps,
+pop.hex <- SODModel(parms=parms.hex,locs=locations.hex,times=time.steps,
                 init=init.hex, K=50)
 
 hex.df <- merge(data.frame(Location=rownames(locations.hex),locations.hex),
@@ -237,7 +237,7 @@ sp.stats <- abind(aaply(sPredicts.m, c(1,2), mean),
                                                           "model.med",
                                                           "pred.med",
                                                           "model.mode"))))
-pop.sp <- SODModel(parms=parms.hex,locations=locations.hex,times=time.steps,
+pop.sp <- SODModel(parms=parms.hex,locs=locations.hex,times=time.steps,
                 init=sp.stats[,,"model.med"], K=50)
 
 hex.sp <- merge(data.frame(Location=rownames(locations.hex),locations.hex),
@@ -354,11 +354,189 @@ save.image(file="cmpruns.Rdata")
 
 load("cmpruns.Rdata")
 lapply(packs,function(x){library(x,character.only=TRUE)}) 
-W
 library(multicore)
 library(doMC)
 library(foreach)
 registerDoMC(cores=7)
 
-pop.hexsch <- SODModel(parms=parms.hex,locations=locations.hex,times=time.steps,
+pop.hexsch <- SODModel(parms=parms.hex,locs=locations.hex,times=time.steps,
                        init=init.hex, stochastic.d=TRUE, reps=50, K=50, parallel=TRUE)
+
+pop.hexsch <- readRDS("pop.hexsch.rds")
+
+
+hexsch.df <- data.table(melt(pop.hexsch))
+hexsch.df <- merge(hexsch.df, data.table(Location=1:nrow(locations.hex),locations.hex), by="Location")
+hexsch.df[, Size := factor(ifelse(SizeClass %in% c("1","2"), 
+                                   "Small", "Big"), 
+                  levels=c("Small", "Big")), by=SizeClass]
+tot <- hexsch.df[, list(Population=sum(Population), Size=Size[1], 
+                        Easting=Easting[1], Northing=Northing[1]), 
+                 by=list(Replicate, Time, Species, SizeClass, Infected)]
+tot[, FracPop := Population/sum(Population), by=list(Replicate,Time)]
+tot <- tot[, list(Frac=sum(FracPop)), by=list(Replicate, Time, Species, Size)]
+tot <- tot[Species=="LIDE"]
+tot[, Group := as.factor(paste0(Size,".",Replicate))]
+plot.hexsch.LIDEsize <- ggplot(tot) +
+  geom_line(mapping=aes(x=Time, y=Frac, col=as.factor(Size), group=Group), lwd=0.1, alpha=0.5) +
+  labs(x="Time (years)", y="Fraction of Population") +
+  scale_y_continuous(limit=c(0,0.6)) +
+  theme(text=element_text(family="Lato Light", size=14),
+        panel.grid.major.x=element_blank(),
+                panel.grid.minor.x=element_blank(),
+        panel.grid.minor.y=element_blank(),
+        panel.grid.major.y=element_line(colour="#ECECEC", size=0.5, linetype=1),
+        axis.ticks.y=element_blank(),
+        panel.background=element_blank(),
+        legend.title=element_blank(),
+        legend.position=c(0.75,0.6),
+        legend.key=element_rect(fill="white"),
+        legend.key.size=unit(1.5, "cm"),
+        legend.text=element_text(size=22),
+        axis.title=element_text(size=24),
+#        strip.text=element_text(size=16,vjust=-.25),
+        axis.text=element_text(color="black",size=13))
+plot.hexsch.LIDEsize
+
+
+#######
+
+require(multicore)
+require(doMC)
+registerDoMC(cores=3)
+pop.spsch <- try(SODModel(parms=parms.hex,locs=locations.hex,times=time.steps,
+                      init=sp.stats[,,"model.med"], K=50, stochastic.d=T, reps=50, parallel=TRUE))
+
+saveRDS(pop.spsch, "pop.spsch.rds")
+rm(pop.spsch)
+
+pop.spinit <- try(SODModel(parms=parms.hex,locs=locations.hex,times=time.steps,
+                      init=sp.inits[,,seq(20,1000, length.out=50)], K=50, stochastic.d=F, parallel=TRUE))
+
+saveRDS(pop.spinit, "pop.spinit.rds")
+rm(pop.spinit)
+
+pop.spinit <- readRDS("pop.spinit.rds")
+
+pop.spinitsch <- try(SODModel(parms=parms.hex,locs=locations.hex,times=time.steps,
+                      init=sp.inits[,,seq(20,1000, length.out=50)], K=50, stochastic.d=T, parallel=TRUE))
+
+saveRDS(pop.spinitsch, "pop.spinitsch.rds")
+
+##TODO: Move distance matrices out of inner loop
+##TODO: data.frame across everything
+##TODO: fault tolerance 1: use (try) on inner loops and return (NA) matrices on failed runs
+##TODO: fault tolerance 2: intermittent saving
+
+stochplot <- function(sod.dt) {
+  if(any(class(sod.dt)=="array")) sod.dt <- melt(sod.dt)
+  sod.dt <- merge(sod.dt, data.table(Location=1:nrow(locations.hex),
+                                        locations.hex),
+                  by="Location")
+  tot <- sod.dt[, list(Population=sum(Population), Easting=Easting[1],
+                       Northing=Northing[1]), 
+                by=list(Replicate, Time, Species, SizeClass, Infected)]
+  tot[, FracPop := Population/sum(Population), by=list(Replicate,Time)]
+  tot <- tot[Species=="LIDE"]
+  tot[, Size := factor(ifelse(SizeClass %in% c("1","2"),"Small", "Big"), 
+                        levels=c("Small", "Big")),
+       by=SizeClass]
+  tot <- tot[, list(Frac=sum(FracPop)), by=list(Replicate, Time, Size)]
+  tot[, Group := as.factor(paste0(Size,".",Replicate))]
+  plot <- ggplot(tot) +
+    geom_line(mapping=aes(x=Time, y=Frac, col=as.factor(Size), group=Group),
+              lwd=0.5, alpha=0.5) +
+    labs(x="Time (years)", y="Fraction of Population") +
+    scale_y_continuous(limit=c(0,0.6)) +
+    theme(text=element_text(family="Lato Light", size=14),
+          panel.grid.major.x=element_blank(),
+          panel.grid.minor.x=element_blank(),
+          panel.grid.minor.y=element_blank(),
+          panel.grid.major.y=element_line(colour="#ECECEC", size=0.5, linetype=1),
+          axis.ticks.y=element_blank(),
+          panel.background=element_blank(),
+          legend.title=element_blank(),
+          legend.position=c(0.75,0.6),
+          legend.key=element_rect(fill="white"),
+          legend.key.size=unit(1.5, "cm"),
+          legend.text=element_text(size=22),
+          axis.title=element_text(size=24),
+          #        strip.text=element_text(size=16,vjust=-.25),
+          axis.text=element_text(color="black",size=13))
+  plot
+}
+plot.spinit.LIDEsize <- stochplot(pop.spinit)
+plot.spinit.LIDEsize
+
+plot.spinitsch.LIDEsize <- stochplot(pop.spinitsch)
+plot.spinitsch.LIDEsize
+
+pop.spsch <- readRDS("pop.spsch.rds")
+plot.spsch.LIDEsize <- stochplot(pop.spsch)
+plot.spsch.LIDEsize
+
+### Plot fraction of diseased hosts
+
+spreadplot <- function(sod.dt, times=c(1,2,5,10,20,50), labels=FALSE) {
+  if(any(class(sod.dt)=="array")) sod.dt <- melt(sod.dt)
+  sod.dt <- sod.dt[Time %in% times & Species %in% c("LIDE", "UMCA")]
+  sod.dt <- sod.dt[, list(Tot=sum(Population)),
+                   by=list(Replicate, Time, Location, Infected)]
+  sod.dt[, FracInf := Tot/sum(Tot), by=list(Replicate, Time, Location)]
+  sod.dt <- sod.dt[Infected=="I"]
+  sod.dt <- merge(data.table(Location=1:nrow(locations.hex),locations.hex), sod.dt,
+                  by="Location")
+  
+  plot <- ggplot(sod.dt, aes(x=Easting, y=Northing)) +
+    geom_hex(stat="identity", mapping=aes(fill=FracInf,col=FracInf)) +
+    facet_wrap(~Time) +
+#   scale_y_continuous(expand=c(0,0))) +
+#   scale_x_continuous(expand=c(0,0)) +
+    scale_fill_gradient(low="white", high="red", limits=c(0,1)) +
+    scale_color_gradient(low="white", high="red", limits=c(0,1)) +
+    coord_equal() +
+    labs(x="Easting", y="Northing") + 
+#    geom_text(mapping=aes(x=Easting, y=Northing, label=format(FracInf, digits=2), cex=3)) +
+    theme(text=element_text(family="Lato Light", size=14),
+          panel.grid=element_blank(),
+          axis.ticks=element_blank(),
+          panel.background=element_blank(),
+          legend.title=element_blank(),
+          #legend.position=c(0.75,0.6),
+          legend.key=element_rect(fill="white"),
+          legend.key.size=unit(1.5, "cm"),
+          legend.text=element_text(size=18),
+          axis.title=element_text(size=24),
+#         strip.text=element_text(size=16,vjust=-.25),
+          axis.text=element_text(color="black",size=13))
+}
+plot.sp.spread.1 <- spreadplot(pop.sp, times=1)
+plot.sp.spread <- spreadplot(pop.sp)
+
+plots.df <- ddply(plot.sum, .(Plot), function(x) {
+                   data.frame(Easting=x$Easting[1], Northing=x$Northing[1],
+                              PctInf=sum(x$Count[which(x$Species %in%
+                                                         c("LIDE","UMCA") &
+                                                         x$Infected=="I")])/
+                                     sum(x$Count[which(x$Species %in%
+                                                         c("LIDE","UMCA"))]))
+                    })
+
+radius <- sqrt(AREA/pi)
+for (i in 1:nrow(plots.df)) {
+  plot.sp.spread.1 <- plot.sp.spread.1 + annotation_custom(
+                                         grob=circleGrob(r=unit(0.5,"npc"), 
+                                                         gp=gpar(alpha=0.8,
+                                                              fill="black")),
+                                         xmin=plots.df$Easting[i] - radius, 
+                                         xmax=plots.df$Easting[i] + radius,
+                                         ymin=plots.df$Northing[i] - radius,
+                                         ymax=plots.df$Northing[i] + radius)
+     }
+
+plot.sp.spread.1 <- plot.sp.spread.1 + geom_text(data=plots.df, 
+                         mapping=aes(x=Easting, y=Northing,
+                                     label=format(PctInf, digits=2)), 
+                         col="white", cex=4)
+plot.sp.spread.1
+#TODO: Make grid shape (hex/square) part of location attributes?s
