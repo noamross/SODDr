@@ -18,13 +18,12 @@ Imports:
 License: MIT
 Collate:
     'DensityDependence.R'
-    'MakeLattice.R'
     'SODModel.R'
     'dispersal_functions.R'
-    'FitLattice.R'
     'abind2.R'
-    'hex.grid.R'
     'SODDr-package.R'
     'plot.sums.R'
     'melt.SODD.R'
     'restart.mcmc.R'
+    'MakeGrid.R'
+    'SODModelrun.R'
