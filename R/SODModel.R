@@ -1,5 +1,6 @@
 #'Runs the disease model.  Outputs a large matrix of population by species, ageclass, location
-#'@import plyr reshape2
+#'@import plyr 
+#'@importFrom tidyr separate_
 #'@export
 SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose=interactive()) {
   
@@ -86,13 +87,7 @@ SODModel <- function(parms.df, locations, time.steps, init, df.out=TRUE, verbose
   }
   if(df.out) {
     pop <- melt(pop, value.name="Population")
-    pop$Class <- factor(pop$Class, levels(pop$Class)[as.vector(rbind(seq(2,n.classes*2,by=2), seq(1,n.classes*2-1, by=2)))])
-    pop <- arrange(pop, Time,Location,Class)
-    pop$Species <- factor(rep(treeparms.df$species, each=2))
-    pop$AgeClass <- factor(rep(treeparms.df$ageclass, each=2))
-    pop$Disease <- factor(c("S","I"), c("S","I"))
-    pop$Class <- NULL
-    pop <- pop[,c(1,2,4,5,6,3)]
+    pop <- tidyr::separate_(pop, "Class", into=c("Species", "AgeClass", "Disease"), sep=",", remove=TRUE, convert=TRUE)
   }
   return(pop)
   
